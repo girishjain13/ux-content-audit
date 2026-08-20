@@ -1,0 +1,67 @@
+name: Run UX & Content Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "URL to audit (e.g. https://example.com)"
+        required: true
+      client_name:
+        description: "Client name (optional — derived from the URL if left blank)"
+        required: false
+      max_pages:
+        description: "Max pages to crawl"
+        required: false
+        default: "500"
+      max_depth:
+        description: "Max crawl depth"
+        required: false
+        default: "12"
+      client_stated_page_count:
+        description: "Client-stated page count, for variance reporting (optional)"
+        required: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright's Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the audit
+        env:
+          AUDIT_URL: ${{ github.event.inputs.site_url }}
+          AUDIT_CLIENT_NAME: ${{ github.event.inputs.client_name }}
+          AUDIT_MAX_PAGES: ${{ github.event.inputs.max_pages }}
+          AUDIT_MAX_DEPTH: ${{ github.event.inputs.max_depth }}
+          AUDIT_CLIENT_STATED_PAGE_COUNT: ${{ github.event.inputs.client_stated_page_count }}
+        run: npm run audit
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
