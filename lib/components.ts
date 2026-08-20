@@ -47,6 +47,7 @@ export type ComponentInfo = {
   pageCount: number;
   pageCoveragePct: number;
   exampleUrl: string;
+  sampleUrls: string[];
 };
 
 export type StyleInconsistency = {
@@ -76,6 +77,7 @@ export function runComponentAnalysis(componentHits: Map<string, Set<string>>, to
       pageCount: urls.size,
       pageCoveragePct: totalPages ? Math.round((urls.size / totalPages) * 1000) / 10 : 0,
       exampleUrl: [...urls].sort()[0],
+      sampleUrls: [...urls].sort().slice(0, 10),
     });
   }
   components.sort((a, b) => b.pageCount - a.pageCount);

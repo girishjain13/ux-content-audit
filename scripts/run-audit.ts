@@ -1,7 +1,9 @@
 import { writeFileSync, mkdirSync } from "fs";
 import { crawlSite } from "../lib/crawler.js";
+import { captureScreenshots } from "../lib/screenshotCapture.js";
 import { analyzeSite } from "./analyze.js";
 import { renderReportHtml } from "./report-template.js";
+import { buildExcelReport } from "./export-xlsx.js";
 
 /**
  * Entrypoint run by GitHub Actions (see .github/workflows/audit.yml).
@@ -87,6 +89,21 @@ async function main() {
       .join(","),
   );
   writeFileSync(`${outDir}/audit-data.csv`, [csvHeaders.join(","), ...csvRows].join("\n"));
+
+  // Screenshots for whichever pages are the "example" for a unique
+  // template or component — a small, bounded set, not every page in
+  // the crawl. Deduped since several templates/components can share
+  // the same example URL.
+  const exampleUrls = [
+    ...analysis.templateAnalysis.templates.map((t) => t.exampleUrl),
+    ...analysis.componentAnalysis.components.map((c) => c.exampleUrl),
+  ];
+  console.log(`Capturing screenshots for ${new Set(exampleUrls).size} example page(s)...`);
+  const screenshots = await captureScreenshots(exampleUrls);
+
+  console.log("Building Excel report...");
+  const xlsxBuffer = await buildExcelReport({ startUrl, clientName, crawledAt, pages, analysis, screenshots });
+  writeFileSync(`${outDir}/audit-data.xlsx`, Buffer.from(xlsxBuffer));
 
   console.log(`Report written to ${outDir}/report.html`);
 }

@@ -178,6 +178,12 @@ export function renderReportHtml(input: {
   .tree-view ul { padding-left: 18px; margin: 0; list-style: none; }
   .tree-view li { font-size: 12.5px; padding: 2px 0; }
   .tree-count { color: var(--ink-faint); }
+  .list-item { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .list-item:last-child { border-bottom: none; }
+  .list-item summary { cursor: pointer; }
+  .list-item ul { margin: 8px 0 4px; }
+  .list-item a { color: var(--accent); text-decoration: none; }
+  .list-item a:hover { text-decoration: underline; }
   .journey-stage { padding: 10px 0; border-bottom: 1px solid var(--line); }
   .journey-stage-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
   .tabs { display: flex; gap: 8px; margin: 28px 0 0; border-bottom: 1px solid var(--line); }
@@ -201,6 +207,7 @@ export function renderReportHtml(input: {
   <div class="exports">
     <a href="./audit-data.json">Export JSON</a>
     <a href="./audit-data.csv">Export CSV</a>
+    <a href="./audit-data.xlsx">Export XLSX</a>
     <a href="#" onclick="window.print();return false;">Print / Save as PDF</a>
   </div>
 
@@ -285,29 +292,41 @@ export function renderReportHtml(input: {
 
     <section>
       <h2 class="section-title">Page Templates</h2>
-      <div class="section-desc">Pages grouped by their actual HTML structure, not by URL pattern or title.</div>
+      <div class="section-desc">Pages grouped by their actual HTML structure, not by URL pattern or title. Click a template to see every page using it.</div>
       <div class="grid grid-4">
         <div class="card stat-card"><div class="num">${templateAnalysis.uniqueTemplateCount}</div><div class="label">Unique Templates</div></div>
         <div class="card stat-card"><div class="num">${templateAnalysis.templatesWithReuse}</div><div class="label">Used By 2+ Pages</div></div>
         <div class="card stat-card"><div class="num">${templateAnalysis.oneOffCount}</div><div class="label">One-off Pages</div></div>
         <div class="card stat-card"><div class="num">${templateAnalysis.pagesAnalyzed}</div><div class="label">Pages Analyzed</div></div>
       </div>
-      <div class="card table-scroll" style="margin-top:12px">
-        <table><thead><tr><th>Pages Using It</th><th>Example Page</th></tr></thead>
-        <tbody>${templateAnalysis.templates.map((t) => `<tr><td>${t.pageCount}</td><td><a href="${esc(t.exampleUrl)}" target="_blank" class="mono">${esc(t.exampleUrl)}</a></td></tr>`).join("")}</tbody></table>
+      <div class="card" style="margin-top:12px">
+        ${templateAnalysis.templates
+          .map(
+            (t) => `<details class="list-item">
+          <summary><span class="mono">${esc(t.fingerprint)}</span> <span class="muted small">— ${t.pageCount} page(s)</span></summary>
+          <ul class="plain small mono">${t.sampleUrls.map((u) => `<li><a href="${esc(u)}" target="_blank">${esc(u)}</a></li>`).join("")}${t.pageCount > t.sampleUrls.length ? `<li class="muted">…and ${t.pageCount - t.sampleUrls.length} more</li>` : ""}</ul>
+        </details>`,
+          )
+          .join("")}
       </div>
     </section>
 
     <section>
       <h2 class="section-title">Reusable UI Components</h2>
-      <div class="section-desc">Recurring markup patterns found across multiple pages — a rough inventory, not a substitute for the real component library.</div>
+      <div class="section-desc">Recurring markup patterns found across multiple pages — a rough inventory, not a substitute for the real component library. Click a component to see every page using it.</div>
       <div class="grid grid-2">
         <div class="card stat-card"><div class="num">${componentAnalysis.uniqueComponentCount}</div><div class="label">Reusable Components Found</div></div>
         <div class="card stat-card"><div class="num">${componentAnalysis.pagesAnalyzed}</div><div class="label">Pages Analyzed</div></div>
       </div>
-      <div class="card table-scroll" style="margin-top:12px">
-        <table><thead><tr><th>Component</th><th>Pages Using It</th><th>Coverage</th><th>Example</th></tr></thead>
-        <tbody>${componentAnalysis.components.map((c) => `<tr><td class="mono">${esc(c.signature)}</td><td>${c.pageCount}</td><td>${c.pageCoveragePct}%</td><td><a href="${esc(c.exampleUrl)}" target="_blank">view</a></td></tr>`).join("")}</tbody></table>
+      <div class="card" style="margin-top:12px">
+        ${componentAnalysis.components
+          .map(
+            (c) => `<details class="list-item">
+          <summary><span class="mono">${esc(c.signature)}</span> <span class="muted small">— ${c.pageCount} page(s), ${c.pageCoveragePct}% coverage</span></summary>
+          <ul class="plain small mono">${c.sampleUrls.map((u) => `<li><a href="${esc(u)}" target="_blank">${esc(u)}</a></li>`).join("")}${c.pageCount > c.sampleUrls.length ? `<li class="muted">…and ${c.pageCount - c.sampleUrls.length} more</li>` : ""}</ul>
+        </details>`,
+          )
+          .join("")}
       </div>
     </section>
 
