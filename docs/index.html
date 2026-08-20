@@ -67,6 +67,24 @@
       </div>
     </div>
 
+    <label style="display:flex; align-items:center; gap:8px; margin-top:16px; font-weight:normal;">
+      <input id="use_ai_classification" type="checkbox" style="width:auto; margin:0;">
+      Use AI-enhanced component/template naming
+    </label>
+    <div class="hint">
+      Requires an <code>ANTHROPIC_API_KEY</code> configured as a repository secret (Settings → Secrets and
+      variables → Actions) — not entered here. A plain text field on this page couldn't safely hold an API key:
+      GitHub Actions inputs aren't masked in run history the way secrets are, so anyone who could see this repo's
+      Actions tab would be able to see it too. Leaving this unchecked (or leaving the secret unset) always falls
+      back to the free rule-based classifier.
+    </div>
+    <div class="row" id="max_ai_pages_row" style="display:none; margin-top:10px;">
+      <div>
+        <label for="max_ai_pages">Max pages to classify with AI (cost control)</label>
+        <input id="max_ai_pages" type="number" min="1" value="100">
+      </div>
+    </div>
+
     <button id="start-btn" onclick="startAudit()">Start Audit →</button>
     <button class="secondary" onclick="checkStatus()">Check latest run status</button>
 
@@ -95,6 +113,10 @@
   }
   loadPat();
 
+  document.getElementById("use_ai_classification").addEventListener("change", function (e) {
+    document.getElementById("max_ai_pages_row").style.display = e.target.checked ? "flex" : "none";
+  });
+
   function showStatus(message, type) {
     const el = document.getElementById("status");
     el.textContent = message;
@@ -115,6 +137,8 @@
       max_pages: document.getElementById("max_pages").value || "500",
       max_depth: document.getElementById("max_depth").value || "12",
       client_stated_page_count: document.getElementById("client_stated_page_count").value || "",
+      use_ai_classification: String(document.getElementById("use_ai_classification").checked),
+      max_ai_pages: document.getElementById("max_ai_pages").value || "100",
     };
 
     const btn = document.getElementById("start-btn");

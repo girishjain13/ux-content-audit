@@ -27,6 +27,11 @@ async function main() {
   const clientStatedPageCount = process.env.AUDIT_CLIENT_STATED_PAGE_COUNT
     ? Number(process.env.AUDIT_CLIENT_STATED_PAGE_COUNT)
     : null;
+  // AI-enhanced classification is opt-in and driven entirely by a repo
+  // secret (ANTHROPIC_API_KEY) — never a plain workflow input — plus
+  // this one boolean flag. See lib/aiPageClassifier.ts for why.
+  const useAiClassification = process.env.AUDIT_USE_AI_CLASSIFICATION === "true";
+  const maxAiPages = Number(process.env.AUDIT_MAX_AI_PAGES || "100");
 
   // This app is scoped to UX Lead + Content Strategist only — the
   // Business Analyst app is a separate repo with its own crawl and its
@@ -52,7 +57,10 @@ async function main() {
 
   const rootHost = new URL(startUrl).host;
   const crawlTruncated = pages.length >= maxPages;
-  const analysis = await analyzeSite(pages, startUrl, clientStatedPageCount, crawlTruncated, rootHost, personas);
+  const analysis = await analyzeSite(pages, startUrl, clientStatedPageCount, crawlTruncated, rootHost, personas, {
+    useAiClassification,
+    maxAiPages,
+  });
 
   console.log(`Analysis complete: ${analysis.findings.length} findings.`);
 

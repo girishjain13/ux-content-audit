@@ -303,7 +303,7 @@ export function renderReportHtml(input: {
         ${templateAnalysis.templates
           .map(
             (t) => `<details class="list-item">
-          <summary><span class="mono">${esc(t.fingerprint)}</span> <span class="muted small">— ${t.pageCount} page(s)</span></summary>
+          <summary><strong>${esc(t.name)}</strong> <span class="muted small">— ${esc(t.layoutGrid)}, confidence ${t.avgConfidence}, ${t.pageCount} page(s)</span></summary>
           <ul class="plain small mono">${t.sampleUrls.map((u) => `<li><a href="${esc(u)}" target="_blank">${esc(u)}</a></li>`).join("")}${t.pageCount > t.sampleUrls.length ? `<li class="muted">…and ${t.pageCount - t.sampleUrls.length} more</li>` : ""}</ul>
         </details>`,
           )
@@ -313,7 +313,7 @@ export function renderReportHtml(input: {
 
     <section>
       <h2 class="section-title">Reusable UI Components</h2>
-      <div class="section-desc">Recurring markup patterns found across multiple pages — a rough inventory, not a substitute for the real component library. Click a component to see every page using it.</div>
+      <div class="section-desc">Semantically named recurring components (e.g. "Testimonial Card", "Editorial Teaser Card") — a rough inventory, not a substitute for the real component library. Click a component to see every page using it.</div>
       <div class="grid grid-2">
         <div class="card stat-card"><div class="num">${componentAnalysis.uniqueComponentCount}</div><div class="label">Reusable Components Found</div></div>
         <div class="card stat-card"><div class="num">${componentAnalysis.pagesAnalyzed}</div><div class="label">Pages Analyzed</div></div>
@@ -322,7 +322,8 @@ export function renderReportHtml(input: {
         ${componentAnalysis.components
           .map(
             (c) => `<details class="list-item">
-          <summary><span class="mono">${esc(c.signature)}</span> <span class="muted small">— ${c.pageCount} page(s), ${c.pageCoveragePct}% coverage</span></summary>
+          <summary><strong>${esc(c.standardName)}</strong> <span class="pill status-${c.reusabilityScore === "High" ? "clean" : c.reusabilityScore === "Medium" ? "issue" : "na"}">${esc(c.reusabilityScore)}</span> <span class="muted small">— ${c.pageCount} page(s), ${c.pageCoveragePct}% coverage</span>
+          <div class="muted small">${esc(c.detectedElements.join(", "))}</div></summary>
           <ul class="plain small mono">${c.sampleUrls.map((u) => `<li><a href="${esc(u)}" target="_blank">${esc(u)}</a></li>`).join("")}${c.pageCount > c.sampleUrls.length ? `<li class="muted">…and ${c.pageCount - c.sampleUrls.length} more</li>` : ""}</ul>
         </details>`,
           )

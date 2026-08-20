@@ -1,11 +1,6 @@
-import {
-  runTemplateAnalysis,
-  structuralFingerprint,
-} from "../lib/templates.js";
-import {
-  extractComponentSignatures,
-  runComponentAnalysis,
-} from "../lib/components.js";
+import { classifyPage } from "../lib/pageClassifier.js";
+import { classifyPageWithAi, aiClassificationAvailable } from "../lib/aiPageClassifier.js";
+import { rollUpTemplates, rollUpComponents } from "../lib/classificationRollup.js";
 import {
   extractVisibleText,
   countImagesAndMissingAlt,
@@ -70,8 +65,8 @@ export type CrawlHealthWarning = {
 export type AnalysisResult = {
   scorecard: ReturnType<typeof buildScorecard>;
   findings: Finding[];
-  templateAnalysis: ReturnType<typeof runTemplateAnalysis>;
-  componentAnalysis: ReturnType<typeof runComponentAnalysis>;
+  templateAnalysis: import("../lib/classificationRollup.js").TemplateRollup;
+  componentAnalysis: import("../lib/classificationRollup.js").ComponentRollup;
   featureMatrix: ReturnType<typeof detectFeaturesAcrossSite>;
   externalLinkHealth: Awaited<ReturnType<typeof checkExternalLinkHealth>>;
   keywords: ReturnType<typeof topKeywords>;
@@ -104,33 +99,33 @@ export async function analyzeSite(
   crawlTruncated: boolean,
   rootHost: string,
   personas: ("ux" | "content" | "business")[],
+  options: { useAiClassification?: boolean; maxAiPages?: number } = {},
 ): Promise<AnalysisResult> {
   const findings: Finding[] = [];
+  const { useAiClassification = false, maxAiPages = 100 } = options;
+  const aiActive = useAiClassification && aiClassificationAvailable();
+  if (useAiClassification && !aiActive) {
+    console.warn("[analyze] AI classification was requested but ANTHROPIC_API_KEY is not set — using rule-based classification for every page.");
+  }
 
-  const templateFingerprints = new Map<string, string>();
-  const componentHits = new Map<string, Set<string>>();
   const localeByUrl = new Map<string, { lang: string | null; hreflang: { locale: string; url: string }[] }>();
 
+  // Classify every page — semantically ("Testimonial Card", "Article
+  // Detail") rather than by structural hash. AI mode (when actually
+  // available) calls Claude per page up to maxAiPages, then falls back
+  // to the same rule-based classifier used everywhere else.
+  const classifications = [];
   for (const p of pages) {
     if (!p.renderedDomHtml) continue;
-    const fp = structuralFingerprint(p.renderedDomHtml);
-    if (fp) templateFingerprints.set(p.url, fp);
-    for (const sig of extractComponentSignatures(p.renderedDomHtml)) {
-      if (!componentHits.has(sig)) componentHits.set(sig, new Set());
-      componentHits.get(sig)!.add(p.url);
-    }
+    const classification = aiActive
+      ? await classifyPageWithAi(p.renderedDomHtml, p.url, maxAiPages)
+      : classifyPage(p.renderedDomHtml, p.url);
+    classifications.push(classification);
     localeByUrl.set(p.url, extractLocaleSignals(p.renderedDomHtml));
   }
 
-  const templateAnalysis = runTemplateAnalysis(
-    pages.map((p) => ({
-      url: p.url,
-      title: p.title,
-      statusCode: p.statusCode,
-      templateFingerprint: templateFingerprints.get(p.url) ?? null,
-    })),
-  );
-  const componentAnalysis = runComponentAnalysis(componentHits, pages.length);
+  const templateAnalysis = rollUpTemplates(classifications);
+  const componentAnalysis = rollUpComponents(classifications);
 
   // --- UX Lead ---
   const brokenPages = pages.filter((p) => p.statusCode !== null && p.statusCode >= 400);

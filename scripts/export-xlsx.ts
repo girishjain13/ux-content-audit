@@ -69,7 +69,9 @@ export async function buildExcelReport(input: {
   // --- Page Templates, with embedded screenshots ---
   const templatesSheet = workbook.addWorksheet("Templates");
   templatesSheet.columns = [
-    { header: "Fingerprint", key: "fp", width: 16 },
+    { header: "Template Name", key: "name", width: 24 },
+    { header: "Layout Grid", key: "layout", width: 22 },
+    { header: "Avg Confidence", key: "confidence", width: 14 },
     { header: "Page Count", key: "count", width: 12 },
     { header: "Example URL", key: "url", width: 55 },
     { header: "Screenshot", key: "screenshot", width: 32 },
@@ -77,7 +79,7 @@ export async function buildExcelReport(input: {
   templatesSheet.getRow(1).font = { bold: true };
   let templateRowIndex = 2;
   for (const t of templateAnalysis.templates) {
-    const row = templatesSheet.addRow({ fp: t.fingerprint, count: t.pageCount, url: t.exampleUrl });
+    const row = templatesSheet.addRow({ name: t.name, layout: t.layoutGrid, confidence: t.avgConfidence, count: t.pageCount, url: t.exampleUrl });
     row.height = 120;
     const shot = screenshots.get(t.exampleUrl);
     if (shot) {
@@ -87,7 +89,7 @@ export async function buildExcelReport(input: {
       // runtime, which is all that matters here.
       const imageId = workbook.addImage({ buffer: Buffer.from(shot), extension: "png" } as any);
       templatesSheet.addImage(imageId, {
-        tl: { col: 3, row: templateRowIndex - 1 },
+        tl: { col: 5, row: templateRowIndex - 1 },
         ext: { width: 220, height: 140 },
       });
     }
@@ -97,7 +99,10 @@ export async function buildExcelReport(input: {
   // --- Reusable Components, with embedded screenshots ---
   const componentsSheet = workbook.addWorksheet("Components");
   componentsSheet.columns = [
-    { header: "Component", key: "sig", width: 24 },
+    { header: "Component", key: "name", width: 28 },
+    { header: "Type", key: "type", width: 18 },
+    { header: "Detected Elements", key: "elements", width: 40 },
+    { header: "Reusability", key: "reusability", width: 12 },
     { header: "Page Count", key: "count", width: 12 },
     { header: "Coverage %", key: "coverage", width: 12 },
     { header: "Example URL", key: "url", width: 55 },
@@ -106,7 +111,10 @@ export async function buildExcelReport(input: {
   componentsSheet.getRow(1).font = { bold: true };
   let componentRowIndex = 2;
   for (const c of componentAnalysis.components) {
-    const row = componentsSheet.addRow({ sig: c.signature, count: c.pageCount, coverage: c.pageCoveragePct, url: c.exampleUrl });
+    const row = componentsSheet.addRow({
+      name: c.standardName, type: c.type, elements: c.detectedElements.join(", "),
+      reusability: c.reusabilityScore, count: c.pageCount, coverage: c.pageCoveragePct, url: c.exampleUrl,
+    });
     row.height = 120;
     const shot = screenshots.get(c.exampleUrl);
     if (shot) {
@@ -116,7 +124,7 @@ export async function buildExcelReport(input: {
       // runtime, which is all that matters here.
       const imageId = workbook.addImage({ buffer: Buffer.from(shot), extension: "png" } as any);
       componentsSheet.addImage(imageId, {
-        tl: { col: 4, row: componentRowIndex - 1 },
+        tl: { col: 7, row: componentRowIndex - 1 },
         ext: { width: 220, height: 140 },
       });
     }

@@ -91,10 +91,46 @@ instead of a React/Tailwind app, since this needs to be a static file).
 - Near-duplicate detection is capped at 300 pages (O(n²) shingling comparison) — fine for
   typical audit sizes, not built to scale to very large sites.
 - Journey mapping is pure keyword matching against URLs/titles — **not real behavioral data**.
-- All analysis is deliberately rule-based, not AI-judgment-based — this was an explicit decision
-  during the original build.
+- Template/component classification is rule-based by default, with an optional, separately
+  gated AI-enhanced mode — see "Template & component classification" below. Everything else
+  remains deliberately rule-based, not AI-judgment-based, per the original build decision.
 - External link health checks are capped at the 30 most-linked external URLs, to keep the whole
   job's runtime reasonable.
+
+## Template & component classification
+
+Every page gets classified into a template archetype (Homepage, Article Detail, Category
+Listing, Product Detail, Standard Content) and its recurring components get semantic names
+("Testimonial Card", "Editorial Teaser Card") rather than raw structural fingerprints — this
+replaced an earlier structural-hash approach entirely.
+
+**Two modes, chosen per run:**
+
+- **Rule-based (default, free, always available)** — `lib/pageClassifier.ts` detects specific
+  structural signals (an avatar + quote + author name → "Testimonial Card"; an image + price +
+  rating + CTA → "Product Summary Card") via straightforward DOM inspection. No API key needed.
+- **AI-enhanced (optional)** — sends each page's HTML to Claude for genuinely more nuanced
+  judgment, using the exact same naming rules. Falls back to the rule-based classifier
+  automatically for any page beyond the configured cap, or if the API call fails for any reason.
+
+**To enable AI mode:**
+
+1. Get an API key from [console.anthropic.com](https://console.anthropic.com)
+2. Add it as a **repository secret** — Settings → Secrets and variables → Actions → New
+   repository secret — named exactly `ANTHROPIC_API_KEY`
+3. Check "Use AI-enhanced component/template naming" when starting a run (launcher page or
+   Actions tab)
+
+**Why there's no API-key field anywhere in the UI:** `workflow_dispatch` inputs aren't masked in
+GitHub's run history the way secrets are — a plain text field on the launcher page would expose
+whatever key was typed into it to anyone who can see this repo's Actions tab (on a public repo,
+that's anyone). A repository secret is the only way to use a real API key here without exposing
+it. The launcher only ever sends a checkbox value (`true`/`false`), never a key.
+
+**Cost control:** AI mode is capped (default 100 pages per run, configurable) specifically
+because "classify every page" combined with a real API call per page can add up fast on a large
+crawl. Pages beyond the cap use the free rule-based classifier, and this is logged clearly in
+the run's console output.
 
 ## Scaling to very large sites (1,000+ pages)
 
