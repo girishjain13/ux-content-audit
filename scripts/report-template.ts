@@ -398,6 +398,31 @@ export function renderReportHtml(input: {
     </section>
 
     <section>
+      <h2 class="section-title">Integrations</h2>
+      <div class="section-desc">Third-party tools detected two ways: matching known script domains, and checking which global JavaScript variables actually initialized on each rendered page — the second catches tools regardless of which domain served the file from.</div>
+      <div class="grid grid-2">
+        <div class="card">
+          <strong class="small">Recognized</strong>
+          <table style="margin-top:8px"><thead><tr><th>Integration</th><th>Category</th><th>Pages</th></tr></thead>
+          <tbody>${
+            integrations.recognized.length === 0
+              ? '<tr><td colspan="3">No recognized integrations detected.</td></tr>'
+              : integrations.recognized.map((i) => `<tr><td>${esc(i.name)}</td><td>${esc(i.category)}</td><td>${i.pagesFoundOn}</td></tr>`).join("")
+          }</tbody></table>
+        </div>
+        <div class="card">
+          <strong class="small">Unrecognized script domains</strong>
+          <table style="margin-top:8px"><thead><tr><th>Domain</th><th>References</th></tr></thead>
+          <tbody>${
+            integrations.unrecognized.length === 0
+              ? '<tr><td colspan="2">No unrecognized third-party script domains found.</td></tr>'
+              : integrations.unrecognized.map((u) => `<tr><td class="mono">${esc(u.domain)}</td><td>${u.references}</td></tr>`).join("")
+          }</tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section>
       <h2 class="section-title">External Link Health</h2>
       <div class="card table-scroll">
         <table><thead><tr><th>Broken URL</th><th>Status</th><th>Linked From</th></tr></thead>
