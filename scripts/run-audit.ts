@@ -17,7 +17,8 @@ async function main() {
     process.exit(1);
   }
   const clientName = process.env.AUDIT_CLIENT_NAME || new URL(startUrl).hostname;
-  const maxPages = Number(process.env.AUDIT_MAX_PAGES || "500");
+  const HARD_MAX_PAGES = 5000;
+  const maxPages = Math.min(Number(process.env.AUDIT_MAX_PAGES || "500"), HARD_MAX_PAGES);
   const maxDepth = Number(process.env.AUDIT_MAX_DEPTH || "12");
   const respectRobots = process.env.AUDIT_RESPECT_ROBOTS !== "false";
   const concurrency = Number(process.env.AUDIT_CONCURRENCY || "4");
@@ -56,24 +57,38 @@ async function main() {
   const outDir = process.env.AUDIT_OUTPUT_DIR || "docs";
   mkdirSync(outDir, { recursive: true });
 
+  const durationSeconds = Math.round((Date.now() - started) / 100) / 10;
+  const crawledAt = new Date().toISOString();
+
   const html = renderReportHtml({
     startUrl,
     clientName,
-    crawledAt: new Date().toISOString(),
+    crawledAt,
+    durationSeconds,
     pages,
     analysis,
-    personaLabel,
   });
-  writeFileSync(`${outDir}/index.html`, html);
+  writeFileSync(`${outDir}/report.html`, html);
 
   // Raw JSON alongside the HTML report, for anyone who wants to build
   // their own view on top of the same data.
-  writeFileSync(
-    `${outDir}/audit-data.json`,
-    JSON.stringify({ startUrl, clientName, crawledAt: new Date().toISOString(), pages, analysis }, null, 2),
-  );
+  writeFileSync(`${outDir}/audit-data.json`, JSON.stringify({ startUrl, clientName, crawledAt, pages, analysis }, null, 2));
 
-  console.log(`Report written to ${outDir}/index.html`);
+  // CSV of findings, for anyone who wants to drop this straight into a
+  // spreadsheet rather than reading the HTML report.
+  const csvEscape = (v: unknown) => {
+    const str = v == null ? "" : String(v);
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const csvHeaders = ["Type", "Title", "Severity", "Effort Bucket", "Personas", "Affected Pages", "Description", "Detection Method"];
+  const csvRows = analysis.findings.map((f) =>
+    [f.findingType, f.title, f.severity, f.effortBucket, f.personas.join("|"), f.affectedPageCount, f.description, f.detectionMethod]
+      .map(csvEscape)
+      .join(","),
+  );
+  writeFileSync(`${outDir}/audit-data.csv`, [csvHeaders.join(","), ...csvRows].join("\n"));
+
+  console.log(`Report written to ${outDir}/report.html`);
 }
 
 main().catch((err) => {

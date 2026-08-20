@@ -60,41 +60,46 @@ function urlHost(url: string): string {
   }
 }
 
-async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string): Promise<CrawledPage> {
-  const started = Date.now();
-  try {
-    const response = await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
-    const statusCode = response ? response.status() : null;
-    const lastModified = response?.headers()["last-modified"] ?? null;
-    const renderedDomHtml = await page.content();
-
-    const extracted = await page.evaluate((rootHost) => {
-      function abs(href: string): string | null {
-        try {
-          return new URL(href, document.baseURI).href;
-        } catch {
-          return null;
-        }
+/**
+ * IMPORTANT: this extraction logic is built as a plain STRING and
+ * passed to page.evaluate() as a string, not as a real TypeScript
+ * function. Real reason: tsx compiles this file with esbuild, which
+ * injects a helper called __name into compiled functions (to preserve
+ * .name for named declarations). Playwright serializes whatever
+ * function you pass to page.evaluate() and re-runs it inside the
+ * actual browser page — a completely separate JS realm that has never
+ * heard of esbuild's __name helper, so every single page failed with
+ * "ReferenceError: __name is not defined" until this was rewritten as
+ * a raw string, which is untouched by any TypeScript/esbuild transform
+ * and therefore has no such helper calls to be missing. Exported (not
+ * just inlined) so it can be tested directly via real TS/tsx
+ * evaluation rather than fragile text-slicing of the source file.
+ */
+export function buildExtractionScript(rootHost: string): string {
+  return `(() => {
+      function abs(href) {
+        try { return new URL(href, document.baseURI).href; } catch { return null; }
       }
+      const rootHost = ${JSON.stringify(rootHost)};
       const title = document.title || null;
       const metaDescription = document.querySelector('meta[name="description"]')?.getAttribute("content") || null;
       const h1Text = document.querySelector("h1")?.textContent?.trim() || null;
       const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute("href") || null;
-      const wordCount = (document.body?.innerText || "").trim().split(/\s+/).filter(Boolean).length;
+      const wordCount = (document.body?.innerText || "").trim().split(/\\s+/).filter(Boolean).length;
       const htmlLang = document.documentElement.getAttribute("lang") || null;
 
-      const hreflangLinks: { locale: string; url: string }[] = [];
+      const hreflangLinks = [];
       for (const link of document.querySelectorAll('link[rel="alternate"][hreflang]')) {
         const locale = link.getAttribute("hreflang");
         const href = link.getAttribute("href");
         if (locale && href) hreflangLinks.push({ locale, url: abs(href) || href });
       }
 
-      const nonHtmlPattern = /\.(pdf|docx?|xlsx?|pptx?|csv|rtf|zip|rar|7z|tar|gz|jpe?g|png|gif|svg|webp|ico|bmp|tiff?|mp4|mp3|wav|avi|mov|webm|ogg|woff2?|ttf|eot|xml|json)(\?|#|$)/i;
+      const nonHtmlPattern = /\\.(pdf|docx?|xlsx?|pptx?|csv|rtf|zip|rar|7z|tar|gz|jpe?g|png|gif|svg|webp|ico|bmp|tiff?|mp4|mp3|wav|avi|mov|webm|ogg|woff2?|ttf|eot|xml|json)(\\?|#|$)/i;
 
-      const internalLinks: string[] = [];
-      const externalLinks: string[] = [];
-      const seenLinks = new Set<string>();
+      const internalLinks = [];
+      const externalLinks = [];
+      const seenLinks = new Set();
       for (const a of document.querySelectorAll("a[href]")) {
         const href = a.getAttribute("href");
         if (!href || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) continue;
@@ -104,22 +109,20 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
         if (nonHtmlPattern.test(full)) continue;
         try {
           const host = new URL(full).host;
-          const normalize = (h: string) => h.replace(/^www\./, "");
+          const normalize = (h) => h.replace(/^www\\./, "");
           if (normalize(host) === normalize(rootHost)) internalLinks.push(full);
           else externalLinks.push(full);
-        } catch {
-          /* skip unparseable */
-        }
+        } catch {}
       }
 
-      const images: string[] = [];
+      const images = [];
       for (const img of document.querySelectorAll("img[src]")) {
         const full = abs(img.getAttribute("src") || "");
         if (full) images.push(full);
       }
 
-      const documents: string[] = [];
-      const docExtPattern = /\.(pdf|docx?|xlsx?|pptx?)(\?|$)/i;
+      const documents = [];
+      const docExtPattern = /\\.(pdf|docx?|xlsx?|pptx?)(\\?|$)/i;
       for (const a of document.querySelectorAll("a[href]")) {
         const href = a.getAttribute("href");
         if (href && docExtPattern.test(href)) {
@@ -128,8 +131,8 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
         }
       }
 
-      const interactions: { type: string; selector: string }[] = [];
-      const interactionSelectors: { type: string; selector: string }[] = [
+      const interactions = [];
+      const interactionSelectors = [
         { type: "modal", selector: '[role="dialog"], .modal' },
         { type: "accordion", selector: '[aria-expanded], .accordion' },
         { type: "carousel", selector: '.carousel, .slider, [class*="carousel"]' },
@@ -146,21 +149,47 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
         title, metaDescription, h1Text, canonical, wordCount, htmlLang, hreflangLinks,
         internalLinks, externalLinks, images, documents, interactions, isClientRendered,
       };
-    }, rootHost);
+    })()`;
+}
 
-    let accessibilityViolations: CrawledPage["accessibilityViolations"] = [];
-    try {
-      await page.addScriptTag({ url: "https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js" });
-      accessibilityViolations = await page.evaluate(async () => {
-        // @ts-expect-error axe is injected globally by the script tag above
+const AXE_SCRIPT = `(async () => {
         const results = await axe.run(document, { resultTypes: ["violations"] });
-        return results.violations.map((v: any) => ({
+        return results.violations.map((v) => ({
           id: v.id,
           impact: v.impact || "minor",
           description: v.help,
           nodesCount: v.nodes.length,
         }));
-      });
+      })()`;
+
+async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string): Promise<CrawledPage> {
+  const started = Date.now();
+  try {
+    const response = await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
+    const statusCode = response ? response.status() : null;
+    const lastModified = response?.headers()["last-modified"] ?? null;
+    const renderedDomHtml = await page.content();
+
+    const extracted = (await page.evaluate(buildExtractionScript(rootHost))) as {
+      title: string | null;
+      metaDescription: string | null;
+      h1Text: string | null;
+      canonical: string | null;
+      wordCount: number;
+      htmlLang: string | null;
+      hreflangLinks: { locale: string; url: string }[];
+      internalLinks: string[];
+      externalLinks: string[];
+      images: string[];
+      documents: string[];
+      interactions: { type: string; selector: string }[];
+      isClientRendered: boolean;
+    };
+
+    let accessibilityViolations: CrawledPage["accessibilityViolations"] = [];
+    try {
+      await page.addScriptTag({ url: "https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js" });
+      accessibilityViolations = (await page.evaluate(AXE_SCRIPT)) as CrawledPage["accessibilityViolations"];
     } catch {
       accessibilityViolations = [];
     }

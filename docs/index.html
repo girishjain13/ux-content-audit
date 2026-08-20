@@ -1,9 +1,175 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>UX & Content Audit</title></head>
-<body style="font-family: sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px;">
-  <h1>No audit has been run yet</h1>
-  <p>Go to this repo's <strong>Actions</strong> tab, select "Run UX & Content Audit", and click
-  "Run workflow" to generate a report. Once it finishes, this page will show the actual report.</p>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UX Lead & Content Strategist Audit — Launcher</title>
+<style>
+  :root { --paper: #f8fafc; --surface: #fff; --ink: #0f172a; --ink-dim: #64748b; --line: #e2e8f0; --accent: #2563eb; --good: #059669; --warn: #d97706; --bad: #dc2626; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: -apple-system, "Segoe UI", Inter, sans-serif; font-size: 15px; line-height: 1.6; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 48px 24px 80px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  .sub { color: var(--ink-dim); font-size: 14px; margin-bottom: 28px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 22px; margin-bottom: 16px; }
+  label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-dim); margin-bottom: 5px; margin-top: 14px; }
+  label:first-of-type { margin-top: 0; }
+  input { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  button { font-size: 14px; font-weight: 600; background: var(--accent); color: #fff; border: none; padding: 11px 18px; border-radius: 8px; cursor: pointer; margin-top: 18px; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .hint { font-size: 12.5px; color: var(--ink-dim); margin-top: 6px; }
+  .status { margin-top: 16px; padding: 12px 14px; border-radius: 8px; font-size: 13.5px; display: none; }
+  .status.info { background: #eff6ff; color: #1e40af; display: block; }
+  .status.success { background: #ecfdf5; color: var(--good); display: block; }
+  .status.error { background: #fef2f2; color: var(--bad); display: block; }
+  a.report-link { display: inline-block; margin-top: 10px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>UX Lead &amp; Content Strategist Audit</h1>
+  <div class="sub">Trigger a crawl of any site directly from this page — no server, just this GitHub repo's own Actions workflow.</div>
+
+  <div class="card">
+    <label for="pat">GitHub Personal Access Token</label>
+    <input id="pat" type="password" placeholder="ghp_..." autocomplete="off">
+    <div class="hint">
+      Needs the <strong>Actions: Read and write</strong> permission on this repo (a fine-grained token scoped to just
+      this repo is safest). <a href="https://github.com/settings/personal-access-tokens/new" target="_blank">Create one here</a>.
+      Stored only in your browser's local storage — never sent anywhere except directly to GitHub's own API.
+    </div>
+
+    <label for="site_url">Website URL</label>
+    <input id="site_url" type="url" placeholder="https://example.com" required>
+
+    <div class="row">
+      <div>
+        <label for="client_name">Client name (optional)</label>
+        <input id="client_name" type="text" placeholder="Derived from URL if blank">
+      </div>
+      <div>
+        <label for="max_pages">Max pages (up to 5000)</label>
+        <input id="max_pages" type="number" min="1" max="5000" value="500">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="max_depth">Max depth</label>
+        <input id="max_depth" type="number" min="1" max="50" value="12">
+      </div>
+      <div>
+        <label for="client_stated_page_count">Client-stated page count (optional)</label>
+        <input id="client_stated_page_count" type="number" min="1">
+      </div>
+    </div>
+
+    <button id="start-btn" onclick="startAudit()">Start Audit →</button>
+    <button class="secondary" onclick="checkStatus()">Check latest run status</button>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <strong>Already ran an audit?</strong>
+    <div class="hint">The most recent finished report lives here — it doesn't update until a run completes.</div>
+    <a class="report-link" href="./report.html">Open latest report →</a>
+  </div>
+</div>
+
+<script>
+  // This page is served from https://{owner}.github.io/{repo}/ — the
+  // owner and repo name can be read directly from that URL, so there's
+  // no need to make the person type them in separately.
+  const pathParts = window.location.pathname.split("/").filter(Boolean);
+  const REPO_OWNER = window.location.hostname.split(".")[0];
+  const REPO_NAME = pathParts[0] || "";
+  const WORKFLOW_FILE = "audit.yml";
+
+  function loadPat() {
+    const saved = localStorage.getItem("audit_pat");
+    if (saved) document.getElementById("pat").value = saved;
+  }
+  loadPat();
+
+  function showStatus(message, type) {
+    const el = document.getElementById("status");
+    el.textContent = message;
+    el.className = "status " + type;
+  }
+
+  async function startAudit() {
+    const pat = document.getElementById("pat").value.trim();
+    const siteUrl = document.getElementById("site_url").value.trim();
+    if (!pat) { showStatus("A GitHub Personal Access Token is required.", "error"); return; }
+    if (!siteUrl) { showStatus("A website URL is required.", "error"); return; }
+
+    localStorage.setItem("audit_pat", pat);
+
+    const inputs = {
+      site_url: siteUrl,
+      client_name: document.getElementById("client_name").value.trim(),
+      max_pages: document.getElementById("max_pages").value || "500",
+      max_depth: document.getElementById("max_depth").value || "12",
+      client_stated_page_count: document.getElementById("client_stated_page_count").value || "",
+    };
+
+    const btn = document.getElementById("start-btn");
+    btn.disabled = true;
+    showStatus("Starting the workflow…", "info");
+
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ref: "main", inputs }),
+        },
+      );
+
+      if (res.status === 204) {
+        showStatus(
+          "Workflow started. This runs a real headless-browser crawl and can take several minutes for larger sites — use \"Check latest run status\" below, or watch it live in this repo's Actions tab.",
+          "success",
+        );
+      } else {
+        const body = await res.text();
+        showStatus(`GitHub rejected the request (${res.status}): ${body.slice(0, 300)}`, "error");
+      }
+    } catch (err) {
+      showStatus("Request failed: " + err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function checkStatus() {
+    const pat = document.getElementById("pat").value.trim() || localStorage.getItem("audit_pat");
+    showStatus("Checking…", "info");
+    try {
+      const headers = pat ? { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json" } : { Accept: "application/vnd.github+json" };
+      const res = await fetch(
+        `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1`,
+        { headers },
+      );
+      const data = await res.json();
+      const run = data.workflow_runs && data.workflow_runs[0];
+      if (!run) { showStatus("No runs found yet.", "info"); return; }
+      const label = `${run.status}${run.conclusion ? " — " + run.conclusion : ""}`;
+      const type = run.conclusion === "success" ? "success" : run.conclusion === "failure" ? "error" : "info";
+      showStatus(`Latest run: ${label}. Started ${new Date(run.run_started_at).toLocaleString()}.`, type);
+    } catch (err) {
+      showStatus("Could not check status: " + err.message, "error");
+    }
+  }
+</script>
 </body>
 </html>

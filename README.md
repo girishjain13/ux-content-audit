@@ -29,21 +29,40 @@ that's a reasonable tradeoff for not needing five different paid services.
 1. **Enable GitHub Pages with "GitHub Actions" as the source** — repo Settings → Pages → under
    "Build and deployment", set Source to **GitHub Actions** (not a branch). This is required for
    the `deploy-pages` step in the workflow to work.
-2. That's it — no environment variables, no API keys, no external accounts needed.
+2. That's it — no environment variables, no external accounts needed for the tool itself.
 
-## Running an audit
+## Running an audit — two ways
 
-1. Go to the repo's **Actions** tab
-2. Select **"Run UX & Content Audit"** in the left sidebar
-3. Click **Run workflow**
-4. Fill in the site URL (required) and optionally client name / max pages / max depth /
-   client-stated page count
-5. Click **Run workflow** to start it
-6. Once it finishes (watch the job's live log), the report is published to your repo's GitHub
-   Pages URL (`https://<username>.github.io/<repo-name>/`)
+### Option A: from the front-end launcher (recommended)
 
-Each run **overwrites** the previous report. If you want to keep history across multiple audits,
-adapt the workflow to write to a dated subfolder instead of `docs/` directly.
+Visit `https://<your-username>.github.io/<repo-name>/` — this is the launcher page
+(`docs/index.html`), a real form that triggers the workflow directly via GitHub's own REST API,
+no need to navigate the Actions tab manually.
+
+You'll need a **GitHub Personal Access Token** with the `Actions: Read and write` permission on
+this repo (a fine-grained token scoped to just this one repo is the safest option — create one
+at [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)).
+Paste it into the form once — it's saved in your browser's local storage so you don't need to
+re-enter it every time, and it's never sent anywhere except directly to GitHub's own API from
+your browser.
+
+Fill in the site URL (required) and optionally client name / max pages (up to 5,000) / max depth
+/ client-stated page count, then click **Start Audit**. Use **Check latest run status** to poll
+progress without leaving the page, or watch the live log in the Actions tab as before.
+
+Once finished, the report is at `https://<your-username>.github.io/<repo-name>/report.html` — the
+launcher page has a direct link to it.
+
+### Option B: directly from the Actions tab (no token needed)
+
+1. Go to the repo's **Actions** tab → **"Run UX & Content Audit"** → **Run workflow**
+2. Fill in the inputs, click **Run workflow**
+3. Once finished, the report is at the same `report.html` URL as above
+
+Each run **overwrites** the previous report (`report.html`), but the launcher page
+(`index.html`) itself is never touched by a crawl run — only committed changes to that file
+change it. If you want to keep history across multiple audits, adapt the workflow to write to a
+dated subfolder instead.
 
 ## What's included vs. the original Vercel version
 
