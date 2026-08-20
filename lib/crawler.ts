@@ -2,6 +2,7 @@ import { chromium, type Page as PlaywrightPage } from "playwright";
 import { loadRobots, canFetch } from "./robots.js";
 import { isLikelyNonHtmlResource } from "./urlFilters.js";
 import { discoverSitemapUrls } from "./sitemap.js";
+import { KNOWN_GLOBAL_VAR_NAMES } from "./knownGlobals.js";
 
 /**
  * The Vercel version needed QStash (a queue) and Redis (dedup + a
@@ -39,6 +40,7 @@ export type CrawledPage = {
   videos: string[];
   interactions: { type: string; selector: string }[];
   accessibilityViolations: { id: string; impact: string; description: string; nodesCount: number }[];
+  detectedGlobals: string[];
   lastModified: string | null;
   error: string | null;
 };
@@ -145,9 +147,23 @@ export function buildExtractionScript(rootHost: string): string {
       const isClientRendered =
         document.querySelectorAll("script").length > 0 && document.body.children.length < 10 && wordCount < 50;
 
+      // Live detection: check which known third-party tool signatures
+      // actually initialized on THIS rendered page, by looking at what
+      // real global variables exist on window right now — not by
+      // guessing from a script tag's URL. This catches tools regardless
+      // of which domain served the underlying file from (self-hosted,
+      // proxied, or otherwise not matching any hardcoded domain list).
+      const knownGlobalNames = ${JSON.stringify(KNOWN_GLOBAL_VAR_NAMES)};
+      const detectedGlobals = [];
+      for (const name of knownGlobalNames) {
+        try {
+          if (typeof window[name] !== "undefined") detectedGlobals.push(name);
+        } catch {}
+      }
+
       return {
         title, metaDescription, h1Text, canonical, wordCount, htmlLang, hreflangLinks,
-        internalLinks, externalLinks, images, documents, interactions, isClientRendered,
+        internalLinks, externalLinks, images, documents, interactions, isClientRendered, detectedGlobals,
       };
     })()`;
 }
@@ -184,6 +200,7 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       documents: string[];
       interactions: { type: string; selector: string }[];
       isClientRendered: boolean;
+      detectedGlobals: string[];
     };
 
     let accessibilityViolations: CrawledPage["accessibilityViolations"] = [];
@@ -223,6 +240,7 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       hreflangLinks: [],
       renderedDomHtml: "",
       isClientRendered: false,
+      detectedGlobals: [],
       internalLinks: [],
       externalLinks: [],
       images: [],
@@ -265,7 +283,7 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
       const batchResults = await Promise.all(
         batch.map(async ({ url, depth }) => {
           if (respectRobots && !canFetch(robotsTxt, url)) {
-            return { url, finalUrl: url, statusCode: null, responseTimeMs: 0, depth, title: null, metaDescription: null, h1Text: null, canonical: null, wordCount: 0, htmlLang: null, hreflangLinks: [], renderedDomHtml: "", isClientRendered: false, internalLinks: [], externalLinks: [], images: [], documents: [], videos: [], interactions: [], accessibilityViolations: [], lastModified: null, error: "blocked_by_robots_txt" } as CrawledPage;
+            return { url, finalUrl: url, statusCode: null, responseTimeMs: 0, depth, title: null, metaDescription: null, h1Text: null, canonical: null, wordCount: 0, htmlLang: null, hreflangLinks: [], renderedDomHtml: "", isClientRendered: false, internalLinks: [], externalLinks: [], images: [], documents: [], videos: [], interactions: [], accessibilityViolations: [], detectedGlobals: [], lastModified: null, error: "blocked_by_robots_txt" } as CrawledPage;
           }
           const page = await context.newPage();
           try {

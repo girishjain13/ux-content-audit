@@ -513,6 +513,7 @@ export async function analyzeSite(
   const perPageDomains = pages.map((p) => ({
     url: p.url,
     domains: p.renderedDomHtml ? extractScripts(p.renderedDomHtml, rootHost).externalDomains : [],
+    detectedGlobals: p.detectedGlobals ?? [],
   }));
   const integrations = classifyIntegrations(perPageDomains);
 

@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { KNOWN_GLOBALS } from "./knownGlobals.js";
 
 /**
  * These run at export time, re-parsing the renderedDomHtml already stored
@@ -258,12 +259,14 @@ const KNOWN_INTEGRATIONS: { match: (host: string) => boolean; name: string; cate
   { match: (h) => h.includes("cloudflare.com") || h.includes("cloudflareinsights"), name: "Cloudflare", category: "Infrastructure" },
 ];
 
-export function classifyIntegrations(perPage: { url: string; domains: string[] }[]) {
+export function classifyIntegrations(
+  perPage: { url: string; domains: string[]; detectedGlobals?: string[] }[],
+) {
   const recognizedPages = new Map<string, Set<string>>();
   const recognizedCategory = new Map<string, string>();
   const unrecognizedRefs = new Map<string, number>();
 
-  for (const { url, domains } of perPage) {
+  for (const { url, domains, detectedGlobals } of perPage) {
     for (const domain of domains) {
       const match = KNOWN_INTEGRATIONS.find((k) => k.match(domain));
       if (match) {
@@ -273,6 +276,19 @@ export function classifyIntegrations(perPage: { url: string; domains: string[] }
       } else {
         unrecognizedRefs.set(domain, (unrecognizedRefs.get(domain) ?? 0) + 1);
       }
+    }
+
+    // Live signal: whatever global variables actually initialized on
+    // this rendered page — catches tools domain-matching would miss
+    // (self-hosted scripts, proxied requests, anything not on the
+    // hardcoded domain list above), and is authoritative rather than
+    // a guess, since it reflects what the page's real code did.
+    for (const globalVar of detectedGlobals ?? []) {
+      const known = KNOWN_GLOBALS.find((g) => g.globalVar === globalVar);
+      if (!known) continue;
+      if (!recognizedPages.has(known.name)) recognizedPages.set(known.name, new Set());
+      recognizedPages.get(known.name)!.add(url);
+      recognizedCategory.set(known.name, known.category);
     }
   }
 
