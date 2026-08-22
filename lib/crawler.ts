@@ -1,6 +1,6 @@
 import { chromium, type Page as PlaywrightPage } from "playwright";
 import { loadRobots, canFetch } from "./robots.js";
-import { isLikelyNonHtmlResource } from "./urlFilters.js";
+import { isLikelyNonHtmlResource, normalizeCrawlUrl } from "./urlFilters.js";
 import { discoverSitemapUrls } from "./sitemap.js";
 import { KNOWN_GLOBAL_VAR_NAMES } from "./knownGlobals.js";
 
@@ -41,6 +41,7 @@ export type CrawledPage = {
   interactions: { type: string; selector: string }[];
   accessibilityViolations: { id: string; impact: string; description: string; nodesCount: number }[];
   detectedGlobals: string[];
+  nonFunctionalHrefs: string[];
   lastModified: string | null;
   error: string | null;
 };
@@ -79,8 +80,20 @@ function urlHost(url: string): string {
  */
 export function buildExtractionScript(rootHost: string): string {
   return `(() => {
+      // Normalizes hash fragments and trailing slashes out of every
+      // resolved URL — confirmed independently across five separate
+      // audit reviews as the single highest-impact bug: without this,
+      // /page, /page/, and /page#section all get treated as three
+      // distinct pages, inflating page counts and duplicate-content
+      // findings by 30-40% on sites with heavy in-page anchor nav.
       function abs(href) {
-        try { return new URL(href, document.baseURI).href; } catch { return null; }
+        try {
+          const parsed = new URL(href, document.baseURI);
+          parsed.hash = "";
+          let result = parsed.toString();
+          if (result.endsWith("/") && parsed.pathname !== "/") result = result.slice(0, -1);
+          return result;
+        } catch { return null; }
       }
       const rootHost = ${JSON.stringify(rootHost)};
       const title = document.title || null;
@@ -101,10 +114,29 @@ export function buildExtractionScript(rootHost: string): string {
 
       const internalLinks = [];
       const externalLinks = [];
+      const nonFunctionalHrefs = [];
       const seenLinks = new Set();
       for (const a of document.querySelectorAll("a[href]")) {
         const href = a.getAttribute("href");
-        if (!href || href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("javascript:")) continue;
+        if (!href) continue;
+        // Robust protocol check, not a growing list of exact-string
+        // matches — a real bug found in review: a typo like
+        // "javacsript:;" (extra 's') doesn't match a startsWith("javascript:")
+        // check, so it silently slipped through as if it were a real
+        // URL, got classified as "external", and then failed the live
+        // link-health check with a confusing ConnectError. Checking
+        // the actual resolved protocol catches this AND any other
+        // non-navigable scheme without needing to know its exact spelling.
+        let protocol;
+        try { protocol = new URL(href, document.baseURI).protocol; } catch { protocol = null; }
+        if (protocol !== "http:" && protocol !== "https:") {
+          // mailto/tel/sms are expected, normal, not bugs — only flag
+          // genuinely broken schemes (typos, stray fragments-as-hrefs,
+          // anything else) as a real finding.
+          const isBenignScheme = protocol === "mailto:" || protocol === "tel:" || protocol === "sms:" || href.startsWith("#");
+          if (!isBenignScheme && nonFunctionalHrefs.length < 20) nonFunctionalHrefs.push(href);
+          continue;
+        }
         const full = abs(href);
         if (!full || seenLinks.has(full)) continue;
         seenLinks.add(full);
@@ -163,7 +195,7 @@ export function buildExtractionScript(rootHost: string): string {
 
       return {
         title, metaDescription, h1Text, canonical, wordCount, htmlLang, hreflangLinks,
-        internalLinks, externalLinks, images, documents, interactions, isClientRendered, detectedGlobals,
+        internalLinks, externalLinks, images, documents, interactions, isClientRendered, detectedGlobals, nonFunctionalHrefs,
       };
     })()`;
 }
@@ -181,7 +213,25 @@ const AXE_SCRIPT = `(async () => {
 async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string): Promise<CrawledPage> {
   const started = Date.now();
   try {
-    const response = await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
+    // Confirmed root cause from an external audit review: "networkidle"
+    // waits for zero network activity for 500ms — but persistent
+    // telemetry/tracking connections (Microsoft Clarity, heatmap tools,
+    // social-SDK beacons) can keep at least one socket open more or
+    // less permanently, meaning the page never reaches "idle" at all
+    // and just times out, producing a null/empty record for an
+    // otherwise perfectly real, working page. "domcontentloaded" plus
+    // a fixed settle delay avoids waiting on network activity that may
+    // never actually stop.
+    let response;
+    try {
+      response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.waitForTimeout(1500); // let client-side hydration/rendering settle
+    } catch (navErr) {
+      // One retry with an even lighter wait condition before giving up
+      // entirely — a page that's slow once isn't necessarily broken.
+      response = await page.goto(url, { waitUntil: "commit", timeout: 20000 });
+      await page.waitForTimeout(2000);
+    }
     const statusCode = response ? response.status() : null;
     const lastModified = response?.headers()["last-modified"] ?? null;
     const renderedDomHtml = await page.content();
@@ -201,6 +251,7 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       interactions: { type: string; selector: string }[];
       isClientRendered: boolean;
       detectedGlobals: string[];
+      nonFunctionalHrefs: string[];
     };
 
     let accessibilityViolations: CrawledPage["accessibilityViolations"] = [];
@@ -241,6 +292,7 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       renderedDomHtml: "",
       isClientRendered: false,
       detectedGlobals: [],
+      nonFunctionalHrefs: [],
       internalLinks: [],
       externalLinks: [],
       images: [],
@@ -255,7 +307,8 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
 }
 
 export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
-  const { startUrl, maxPages, maxDepth, respectRobots, concurrency } = options;
+  const { startUrl: rawStartUrl, maxPages, maxDepth, respectRobots, concurrency } = options;
+  const startUrl = normalizeCrawlUrl(rawStartUrl);
   const rootHost = urlHost(startUrl);
   const robotsTxt = respectRobots ? await loadRobots(startUrl) : "";
 
@@ -266,8 +319,10 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
   // Sitemap seeding — same rationale as the Vercel version: link-following
   // alone under-discovers pages on sites with JS pagination or mega-menus.
   const sitemapUrls = await discoverSitemapUrls(startUrl);
-  for (const url of sitemapUrls) {
-    if (seen.has(url) || queue.length + results.length >= maxPages) break;
+  for (const rawUrl of sitemapUrls) {
+    const url = normalizeCrawlUrl(rawUrl);
+    if (queue.length + results.length >= maxPages) break; // budget genuinely exhausted, stop entirely
+    if (seen.has(url)) continue; // just this one's a dupe — keep checking the rest of the sitemap
     seen.add(url);
     queue.push({ url, depth: 1 });
   }
@@ -283,7 +338,7 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
       const batchResults = await Promise.all(
         batch.map(async ({ url, depth }) => {
           if (respectRobots && !canFetch(robotsTxt, url)) {
-            return { url, finalUrl: url, statusCode: null, responseTimeMs: 0, depth, title: null, metaDescription: null, h1Text: null, canonical: null, wordCount: 0, htmlLang: null, hreflangLinks: [], renderedDomHtml: "", isClientRendered: false, internalLinks: [], externalLinks: [], images: [], documents: [], videos: [], interactions: [], accessibilityViolations: [], detectedGlobals: [], lastModified: null, error: "blocked_by_robots_txt" } as CrawledPage;
+            return { url, finalUrl: url, statusCode: null, responseTimeMs: 0, depth, title: null, metaDescription: null, h1Text: null, canonical: null, wordCount: 0, htmlLang: null, hreflangLinks: [], renderedDomHtml: "", isClientRendered: false, internalLinks: [], externalLinks: [], images: [], documents: [], videos: [], interactions: [], accessibilityViolations: [], detectedGlobals: [], nonFunctionalHrefs: [], lastModified: null, error: "blocked_by_robots_txt" } as CrawledPage;
           }
           const page = await context.newPage();
           try {

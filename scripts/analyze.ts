@@ -12,6 +12,7 @@ import {
   topPhrases,
 } from "../lib/reportAnalysis.js";
 import { extractLocaleSignals } from "../lib/locale.js";
+import { runUrlHealthAnalysis } from "../lib/urlHealth.js";
 import { checkExternalLinkHealth } from "../lib/externalLinkHealth.js";
 import { runVarianceAnalysis } from "../lib/variance.js";
 import { buildScorecard } from "../lib/scoring.js";
@@ -285,11 +286,16 @@ export async function analyzeSite(
     moderate: "medium",
     minor: "low",
   };
-  const byRuleId = new Map<string, { impact: string; description: string; pages: Set<string> }>();
+  const byRuleId = new Map<string, { impact: string; description: string; pages: Set<string>; totalViolations: number }>();
+  const violationsByImpact = { critical: 0, serious: 0, moderate: 0, minor: 0 };
   for (const p of pages) {
     for (const v of p.accessibilityViolations ?? []) {
-      if (!byRuleId.has(v.id)) byRuleId.set(v.id, { impact: v.impact, description: v.description, pages: new Set() });
-      byRuleId.get(v.id)!.pages.add(p.url);
+      if (!byRuleId.has(v.id)) byRuleId.set(v.id, { impact: v.impact, description: v.description, pages: new Set(), totalViolations: 0 });
+      const entry = byRuleId.get(v.id)!;
+      entry.pages.add(p.url);
+      entry.totalViolations += v.nodesCount;
+      const impactKey = v.impact as keyof typeof violationsByImpact;
+      if (impactKey in violationsByImpact) violationsByImpact[impactKey] += v.nodesCount;
     }
   }
   for (const [ruleId, data] of byRuleId) {
@@ -297,7 +303,11 @@ export async function analyzeSite(
       makeFinding({
         findingType: "accessibility_violation",
         title: `WCAG issue: ${data.description}`,
-        description: `axe-core rule "${ruleId}" (${data.impact} impact) triggered on ${data.pages.size} page(s).`,
+        // Page count and violation count are genuinely different
+        // signals — a rule triggering once on 50 pages reads very
+        // differently from one triggering 50 times on a single page,
+        // and the old description only ever showed the first number.
+        description: `axe-core rule "${ruleId}" (${data.impact} impact) — ${data.totalViolations} total violation(s) across ${data.pages.size} page(s).`,
         severity: AXE_IMPACT_TO_SEVERITY[data.impact] ?? "medium",
         effortBucket: "config",
         personas: ["ux"],
@@ -308,6 +318,52 @@ export async function analyzeSite(
     );
   }
   const pagesWithA11yIssues = pages.filter((p) => (p.accessibilityViolations ?? []).length > 0).length;
+
+  // Case-insensitive URL duplicates (e.g. /booking/pulsar-N160 vs
+  // /booking/pulsar-n160) — real reference implementation already
+  // existed in lib/urlHealth.ts, it was just never actually wired into
+  // a Finding until now.
+  const urlHealth = runUrlHealthAnalysis(pages.map((p) => p.url));
+  if (urlHealth.caseInconsistencies.length) {
+    const affected = urlHealth.caseInconsistencies.flatMap((c) => c.pages);
+    findings.push(
+      makeFinding({
+        findingType: "case_inconsistent_urls",
+        title: `${urlHealth.caseInconsistencies.length} URL group(s) differ only by casing`,
+        description: "These may serve duplicate content on case-sensitive servers, or risk duplicate indexing even where the server itself is case-insensitive.",
+        severity: "low",
+        effortBucket: "config",
+        personas: ["business", "content"],
+        affectedPageCount: affected.length,
+        affectedUrlsSample: affected.slice(0, 10),
+        detectionMethod: "Case-insensitive path grouping across all crawled URLs",
+      }),
+    );
+  }
+
+  // Non-functional hrefs (javascript: typos, malformed pseudo-protocols)
+  // — genuinely different from a real broken external link, and was
+  // previously handed straight to the external-link-health checker,
+  // which then reported a confusing "ConnectError" for something that
+  // was never a navigable URL in the first place.
+  const pagesWithNonFunctionalHrefs = pages.filter((p) => (p.nonFunctionalHrefs ?? []).length > 0);
+  if (pagesWithNonFunctionalHrefs.length) {
+    const totalCount = pagesWithNonFunctionalHrefs.reduce((s, p) => s + p.nonFunctionalHrefs.length, 0);
+    const sampleHrefs = [...new Set(pagesWithNonFunctionalHrefs.flatMap((p) => p.nonFunctionalHrefs))].slice(0, 5);
+    findings.push(
+      makeFinding({
+        findingType: "non_functional_href",
+        title: `${totalCount} non-functional href value(s) found (e.g. ${sampleHrefs.join(", ")})`,
+        description: "A malformed or misspelled pseudo-protocol in an href attribute (e.g. \"javacsript:;\") — a front-end code-quality issue on the site's own markup, not a broken outbound link.",
+        severity: "low",
+        effortBucket: "custom_dev",
+        personas: ["ux", "business"],
+        affectedPageCount: pagesWithNonFunctionalHrefs.length,
+        affectedUrlsSample: pagesWithNonFunctionalHrefs.slice(0, 10).map((p) => p.url),
+        detectionMethod: "href attribute resolved to a non-http(s), non-benign protocol",
+      }),
+    );
+  }
 
   const missingCanonical = pages.filter((p) => !p.error && !p.canonical);
   if (missingCanonical.length) {
@@ -495,6 +551,7 @@ export async function analyzeSite(
     missingH1Count: missingH1.length,
     imageAltCoveragePct,
     pagesWithAccessibilityIssues: pagesWithA11yIssues,
+    accessibilityViolationsByImpact: violationsByImpact,
     missingTitleCount: missingTitle.length,
     missingMetaDescriptionCount: missingMetaDescription.length,
     canonicalMissingCount: pages.filter((p) => !p.canonical).length,
@@ -609,7 +666,7 @@ export async function analyzeSite(
     buildHeuristicCard(
       "h5", "H5 · Error prevention",
       "Does the design stop mistakes before they happen — clear form fields, sensible defaults?",
-      [], // no form-validation detector built — always reports clean rather than guessing
+      null, "Forms and interactive flows may exist on this site, but task completion and error recovery can't be reliably evaluated from static crawl data — needs human validation.",
     ),
     buildHeuristicCard(
       "h6", "H6 · Recognition rather than recall",
@@ -629,7 +686,7 @@ export async function analyzeSite(
     buildHeuristicCard(
       "h9", "H9 · Help recognize, diagnose, and recover from errors",
       "When something goes wrong (a broken link, a bad search), does the site help people recover?",
-      ["broken_page", "missing_og_tags"],
+      ["broken_page"],
     ),
     buildHeuristicCard(
       "h10", "H10 · Help and documentation",

@@ -12,12 +12,12 @@ import { detectForms } from "./formDetection";
  */
 
 const URL_PATTERN_FEATURES: { feature: string; pattern: RegExp }[] = [
-  { feature: "Blog / Articles", pattern: /\/(blog|articles?|insights|news)(\/|$)/i },
-  { feature: "FAQ / Help Center", pattern: /\/(faq|help|support)(\/|$)/i },
+  { feature: "Blog / Articles", pattern: /\/(blogs?|articles?|insights|news)(\/|$)/i },
+  { feature: "FAQ / Help Center", pattern: /\/(faqs?|help|support)(\/|$)/i },
   { feature: "Pricing / Plans", pattern: /\/(pricing|plans)(\/|$)/i },
   { feature: "Careers / Jobs", pattern: /\/(careers?|jobs)(\/|$)/i },
   { feature: "E-commerce (cart / checkout)", pattern: /\/(cart|checkout|shop|basket)(\/|$)/i },
-  { feature: "Store/Office Locations", pattern: /\/(locations?|branches|stores?|find-us|near-me)(\/|$)/i },
+  { feature: "Store/Office Locations", pattern: /\/(locations?|branches|stores?|find-us|near-me|locate-a-dealer|find-a-dealer|dealer-locator|dealers?)(\/|$)/i },
 ];
 
 const CHAT_WIDGET_DOMAINS = ["intercom.io", "intercomcdn", "drift.com", "zdassets.com", "livechatinc.com", "tawk.to", "hubspot.com/conversations"];

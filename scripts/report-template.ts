@@ -65,20 +65,45 @@ function renderJourneyStage(stage: JourneyStageResult): string {
 function renderLinkingMap(pages: CrawledPage[]): string {
   const inbound = new Map<string, number>();
   for (const p of pages) for (const link of p.internalLinks) inbound.set(link, (inbound.get(link) ?? 0) + 1);
-  const nodes = pages.slice(0, 250).map((p) => ({ url: p.url, count: inbound.get(p.url) ?? 0 }));
-  const maxCount = Math.max(1, ...nodes.map((n) => n.count));
+
+  // A real, confirmed pattern from external review: dozens of
+  // semantically unrelated pages showed identical inbound-link counts
+  // in clusters (e.g. exactly 837, 811, 890 repeated site-wide) —
+  // because a link present in the global nav/footer gets counted as
+  // "inbound" from every single page, which says nothing about real
+  // content relationships between pages. Anything linked from more
+  // than 75% of all crawled pages is almost certainly template-wide
+  // chrome, not a genuine content signal — cap its visual size rather
+  // than let it dominate/distort the rest of the map.
+  const totalPages = Math.max(pages.length, 1);
+  const chromeThreshold = totalPages * 0.75;
+  let chromeLinkCount = 0;
+
+  const nodes = pages.slice(0, 250).map((p) => {
+    const rawCount = inbound.get(p.url) ?? 0;
+    const isLikelyChrome = rawCount > chromeThreshold;
+    if (isLikelyChrome) chromeLinkCount++;
+    return { url: p.url, count: rawCount, isLikelyChrome };
+  });
+  const contentNodes = nodes.filter((n) => !n.isLikelyChrome);
+  const maxCount = Math.max(1, ...contentNodes.map((n) => n.count));
   const cols = 25;
   const cells = nodes
     .map((n, i) => {
-      const r = 3 + (n.count / maxCount) * 9;
+      const r = n.isLikelyChrome ? 3 : 3 + (n.count / maxCount) * 9;
       const cx = (i % cols) * 24 + 12;
       const cy = Math.floor(i / cols) * 24 + 12;
-      const color = n.count === 0 ? "#94a3b8" : "#c1531f";
-      return `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="${color}" opacity="0.75"><title>${esc(n.url)} — ${n.count} inbound link(s)</title></circle>`;
+      const color = n.count === 0 ? "#94a3b8" : n.isLikelyChrome ? "#c9c2b4" : "#c1531f";
+      const label = n.isLikelyChrome ? `${esc(n.url)} — likely global nav/footer link, excluded from sizing` : `${esc(n.url)} — ${n.count} inbound link(s)`;
+      return `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="${color}" opacity="0.75"><title>${label}</title></circle>`;
     })
     .join("");
   const rows = Math.ceil(nodes.length / cols);
-  return `<svg viewBox="0 0 ${cols * 24} ${rows * 24}" width="100%" style="max-height:340px">${cells}</svg>`;
+  const caption =
+    chromeLinkCount > 0
+      ? `<p class="muted small" style="margin-top:8px">${chromeLinkCount} page(s) linked from more than 75% of the site (almost certainly global navigation/footer chrome, not genuine content relationships) are shown at a fixed minimum size, in gray, rather than sized by raw inbound count.</p>`
+      : "";
+  return `<svg viewBox="0 0 ${cols * 24} ${rows * 24}" width="100%" style="max-height:340px">${cells}</svg>${caption}`;
 }
 
 export function renderReportHtml(input: {
@@ -106,7 +131,7 @@ export function renderReportHtml(input: {
     .map((s) => `<div class="bar-row"><span class="bar-label">${esc(s.section)}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.round((s.count / maxSectionCount) * 100)}%"></div></div></div>`)
     .join("");
 
-  const contentFindingTypes = ["missing_title", "missing_meta_description", "duplicate_title", "near_duplicate_content", "low_readability", "missing_canonical", "missing_og_tags", "thin_content"];
+  const contentFindingTypes = ["missing_title", "missing_meta_description", "duplicate_title", "near_duplicate_content", "low_readability", "missing_canonical", "missing_og_tags", "thin_content", "case_inconsistent_urls", "non_functional_href"];
   const contentFindings = findings.filter((f) => contentFindingTypes.includes(f.findingType));
 
   return `<!DOCTYPE html>
