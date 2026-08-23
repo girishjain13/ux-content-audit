@@ -3,105 +3,179 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>UX Lead & Content Strategist Audit — Launcher</title>
+<title>UX & Content Audit — Launcher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  :root { --paper: #f8fafc; --surface: #fff; --ink: #0f172a; --ink-dim: #64748b; --line: #e2e8f0; --accent: #2563eb; --good: #059669; --warn: #d97706; --bad: #dc2626; }
+  :root {
+    --paper: #faf7f2; --surface: #fff; --surface-2: #f3eee6; --line: #e7e0d4;
+    --ink: #24211d; --ink-dim: #6e6a62; --ink-faint: #9a958a;
+    --accent: #c1531f; --sage: #4f7a5c; --amber: #b8862b; --coral: #b23a34;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--paper); color: var(--ink); font-family: -apple-system, "Segoe UI", Inter, sans-serif; font-size: 15px; line-height: 1.6; }
-  .wrap { max-width: 640px; margin: 0 auto; padding: 48px 24px 80px; }
-  h1 { font-size: 26px; margin: 0 0 6px; }
-  .sub { color: var(--ink-dim); font-size: 14px; margin-bottom: 28px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 22px; margin-bottom: 16px; }
-  label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-dim); margin-bottom: 5px; margin-top: 14px; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Inter", -apple-system, sans-serif; font-size: 15px; line-height: 1.6; }
+  h1, h2 { font-family: "Fraunces", Georgia, serif; font-weight: 500; margin: 0; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; padding: 18px 32px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
+  .brand-badge { width: 28px; height: 28px; border-radius: 8px; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; font-family: "Fraunces", serif; font-size: 14px; }
+  .topbar-sub { font-size: 12.5px; color: var(--ink-dim); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 32px 80px; }
+  .hero { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 40px; align-items: start; }
+  .kicker { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+  h1 { font-size: 44px; line-height: 1.08; margin-bottom: 20px; }
+  .hero-desc { font-size: 16px; color: var(--ink-dim); max-width: 46ch; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 26px; }
+  label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-dim); margin-bottom: 6px; margin-top: 16px; }
   label:first-of-type { margin-top: 0; }
-  input { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; }
-  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  button { font-size: 14px; font-weight: 600; background: var(--accent); color: #fff; border: none; padding: 11px 18px; border-radius: 8px; cursor: pointer; margin-top: 18px; }
-  button:hover { opacity: 0.9; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  .hint { font-size: 12.5px; color: var(--ink-dim); margin-top: 6px; }
+  input, select { width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 8px; font-size: 14.5px; font-family: inherit; background: var(--surface); }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+  .run-btn { width: 100%; font-family: "IBM Plex Mono", monospace; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600; background: var(--ink); color: #fff; border: none; padding: 14px 18px; border-radius: 8px; cursor: pointer; margin-top: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .run-btn:hover { opacity: 0.9; }
+  .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .secondary-btn { width: 100%; font-size: 13px; font-weight: 500; background: none; color: var(--ink-dim); border: 1px solid var(--line); padding: 10px 16px; border-radius: 8px; cursor: pointer; margin-top: 10px; }
+  .hint { font-size: 12px; color: var(--ink-faint); margin-top: 6px; line-height: 1.5; }
   .status { margin-top: 16px; padding: 12px 14px; border-radius: 8px; font-size: 13.5px; display: none; }
-  .status.info { background: #eff6ff; color: #1e40af; display: block; }
-  .status.success { background: #ecfdf5; color: var(--good); display: block; }
-  .status.error { background: #fef2f2; color: var(--bad); display: block; }
-  a.report-link { display: inline-block; margin-top: 10px; font-weight: 600; }
+  .status.info { background: #eef2ff; color: #3730a3; display: block; }
+  .status.success { background: #ecf6ef; color: var(--sage); display: block; }
+  .status.error { background: #fdf1ef; color: var(--coral); display: block; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 18px; font-size: 13.5px; font-weight: normal; color: var(--ink); }
+  .checkbox-row input { width: auto; margin: 0; }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 56px; }
+  .feature-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .feature-num { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--accent); margin-bottom: 8px; }
+  .feature-card h2 { font-size: 19px; margin-bottom: 8px; }
+  .feature-card p { font-size: 13.5px; color: var(--ink-dim); margin: 0; }
+  .reports-section { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .reports-section h2 { font-size: 22px; }
+  a.report-link { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 14px; }
+  a.report-link:hover { text-decoration: underline; }
+  .reports-note { font-size: 13px; color: var(--ink-faint); }
+  code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; }
+    .features { grid-template-columns: 1fr; }
+    h1 { font-size: 32px; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>UX Lead &amp; Content Strategist Audit</h1>
-  <div class="sub">Trigger a crawl of any site directly from this page — no server, just this GitHub repo's own Actions workflow.</div>
+  <div class="topbar">
+    <div class="brand"><span class="brand-badge">U</span> UX & Content Audit</div>
+    <div class="topbar-sub">Runs on GitHub Actions — no server, no database</div>
+  </div>
 
-  <div class="card">
-    <label for="pat">GitHub Personal Access Token</label>
-    <input id="pat" type="password" placeholder="ghp_..." autocomplete="off">
-    <div class="hint">
-      Needs the <strong>Actions: Read and write</strong> permission on this repo (a fine-grained token scoped to just
-      this repo is safest). <a href="https://github.com/settings/personal-access-tokens/new" target="_blank">Create one here</a>.
-      Stored only in your browser's local storage — never sent anywhere except directly to GitHub's own API.
-    </div>
+  <div class="wrap">
+    <div class="hero">
+      <div>
+        <div class="kicker">UX Lead · Content Strategist</div>
+        <h1>Audits that render the real page.</h1>
+        <p class="hero-desc">
+          A real headless browser loads the page, lets client-side JavaScript hydrate, scrolls to trigger
+          lazy-loaded content, then scores it — not just missing title tags. Accessibility is severity-weighted,
+          not a binary pass/fail. Journeys are path-aware, so a news story about a hospital wing "opening" doesn't
+          get mistaken for a job listing.
+        </p>
+      </div>
 
-    <label for="site_url">Website URL</label>
-    <input id="site_url" type="url" placeholder="https://example.com" required>
+      <div class="card">
+        <label for="site_url">Website URL</label>
+        <input id="site_url" type="url" placeholder="https://example.com" required>
 
-    <div class="row">
-      <div>
-        <label for="client_name">Client name (optional)</label>
-        <input id="client_name" type="text" placeholder="Derived from URL if blank">
-      </div>
-      <div>
-        <label for="max_pages">Max pages (up to 5000)</label>
-        <input id="max_pages" type="number" min="1" max="5000" value="500">
-      </div>
-    </div>
-    <div class="row">
-      <div>
-        <label for="max_depth">Max depth</label>
-        <input id="max_depth" type="number" min="1" max="50" value="12">
-      </div>
-      <div>
+        <div class="row">
+          <div>
+            <label for="max_pages_preset">Pages</label>
+            <select id="max_pages_preset">
+              <option value="8">8 — quick preview</option>
+              <option value="50">50 — focused</option>
+              <option value="500" selected>500 — standard</option>
+              <option value="2000">2,000 — thorough</option>
+              <option value="5000">5,000 — full site (max)</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <div id="max_pages_custom_wrap" style="display:none">
+            <label for="max_pages">Custom max pages</label>
+            <input id="max_pages" type="number" min="1" max="5000" value="500">
+          </div>
+        </div>
+
+        <label for="pat">GitHub Personal Access Token</label>
+        <input id="pat" type="password" placeholder="ghp_..." autocomplete="off">
+        <div class="hint">
+          Needs <strong>Actions: Read and write</strong> on this repo. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank">Create one here</a> —
+          stored only in your browser, sent only to GitHub's own API.
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="client_name">Client name (optional)</label>
+            <input id="client_name" type="text" placeholder="From URL if blank">
+          </div>
+          <div>
+            <label for="max_depth">Max depth</label>
+            <input id="max_depth" type="number" min="1" max="50" value="12">
+          </div>
+        </div>
         <label for="client_stated_page_count">Client-stated page count (optional)</label>
         <input id="client_stated_page_count" type="number" min="1">
+
+        <label class="checkbox-row">
+          <input id="use_ai_classification" type="checkbox">
+          Use AI-enhanced component/template naming
+        </label>
+        <div class="hint">
+          Requires an <code>ANTHROPIC_API_KEY</code> repo secret (Settings → Secrets and variables → Actions) —
+          never entered here, since Actions inputs aren't masked in run history the way secrets are. Unchecked or
+          unset always falls back to the free rule-based classifier.
+        </div>
+        <div class="row" id="max_ai_pages_row" style="display:none; margin-top:10px;">
+          <div>
+            <label for="max_ai_pages">Max AI-classified pages (cost control)</label>
+            <input id="max_ai_pages" type="number" min="1" value="100">
+          </div>
+        </div>
+
+        <button id="start-btn" class="run-btn" onclick="startAudit()">→ Run live crawl</button>
+        <button class="secondary-btn" onclick="checkStatus()">Check latest run status</button>
+        <div id="status" class="status"></div>
       </div>
     </div>
 
-    <label style="display:flex; align-items:center; gap:8px; margin-top:16px; font-weight:normal;">
-      <input id="use_ai_classification" type="checkbox" style="width:auto; margin:0;">
-      Use AI-enhanced component/template naming
-    </label>
-    <div class="hint">
-      Requires an <code>ANTHROPIC_API_KEY</code> configured as a repository secret (Settings → Secrets and
-      variables → Actions) — not entered here. A plain text field on this page couldn't safely hold an API key:
-      GitHub Actions inputs aren't masked in run history the way secrets are, so anyone who could see this repo's
-      Actions tab would be able to see it too. Leaving this unchecked (or leaving the secret unset) always falls
-      back to the free rule-based classifier.
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-num">01</div>
+        <h2>Render, don't fetch</h2>
+        <p>Chromium executes the page — SPAs, hydration, and JS-injected content are visible to the audit, not
+        just the initial server response. A short scroll cycle before extraction also triggers lazy-loaded
+        images and cards that only mount on scroll.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-num">02</div>
+        <h2>Score like a lead</h2>
+        <p>Accessibility is severity-weighted, not a binary "any issue = zero." SEO accounts for duplicate
+        titles, not just missing ones. The "next sprint" recommendation ranks real accessibility and content
+        issues above a handful of orphan pages.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-num">03</div>
+        <h2>Journeys with proof</h2>
+        <p>Path-aware matching, not bag-of-words. A news story titled "new unit opening" won't get mistaken for
+        a job listing, and an investor-relations page won't get credited as a customer journey stage just
+        because a word overlaps.</p>
+      </div>
     </div>
-    <div class="row" id="max_ai_pages_row" style="display:none; margin-top:10px;">
+
+    <div class="reports-section">
       <div>
-        <label for="max_ai_pages">Max pages to classify with AI (cost control)</label>
-        <input id="max_ai_pages" type="number" min="1" value="100">
+        <h2>Reports</h2>
+        <div class="reports-note">The most recent finished report lives here — it doesn't update until a run completes.</div>
       </div>
+      <a class="report-link" href="./report.html">Open latest report →</a>
     </div>
-
-    <button id="start-btn" onclick="startAudit()">Start Audit →</button>
-    <button class="secondary" onclick="checkStatus()">Check latest run status</button>
-
-    <div id="status" class="status"></div>
   </div>
-
-  <div class="card">
-    <strong>Already ran an audit?</strong>
-    <div class="hint">The most recent finished report lives here — it doesn't update until a run completes.</div>
-    <a class="report-link" href="./report.html">Open latest report →</a>
-  </div>
-</div>
 
 <script>
-  // This page is served from https://{owner}.github.io/{repo}/ — the
-  // owner and repo name can be read directly from that URL, so there's
-  // no need to make the person type them in separately.
   const pathParts = window.location.pathname.split("/").filter(Boolean);
   const REPO_OWNER = window.location.hostname.split(".")[0];
   const REPO_NAME = pathParts[0] || "";
@@ -113,6 +187,16 @@
   }
   loadPat();
 
+  document.getElementById("max_pages_preset").addEventListener("change", function (e) {
+    const customWrap = document.getElementById("max_pages_custom_wrap");
+    if (e.target.value === "custom") {
+      customWrap.style.display = "block";
+    } else {
+      customWrap.style.display = "none";
+      document.getElementById("max_pages").value = e.target.value;
+    }
+  });
+
   document.getElementById("use_ai_classification").addEventListener("change", function (e) {
     document.getElementById("max_ai_pages_row").style.display = e.target.checked ? "flex" : "none";
   });
@@ -121,6 +205,11 @@
     const el = document.getElementById("status");
     el.textContent = message;
     el.className = "status " + type;
+  }
+
+  function resolveMaxPages() {
+    const preset = document.getElementById("max_pages_preset").value;
+    return preset === "custom" ? (document.getElementById("max_pages").value || "500") : preset;
   }
 
   async function startAudit() {
@@ -134,7 +223,7 @@
     const inputs = {
       site_url: siteUrl,
       client_name: document.getElementById("client_name").value.trim(),
-      max_pages: document.getElementById("max_pages").value || "500",
+      max_pages: resolveMaxPages(),
       max_depth: document.getElementById("max_depth").value || "12",
       client_stated_page_count: document.getElementById("client_stated_page_count").value || "",
       use_ai_classification: String(document.getElementById("use_ai_classification").checked),
