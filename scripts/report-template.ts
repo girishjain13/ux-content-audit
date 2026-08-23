@@ -160,18 +160,24 @@ export function renderReportHtml(input: {
   .badges b { font-family: "IBM Plex Mono", monospace; }
   .exports a { color: var(--accent); font-size: 13px; margin-right: 16px; text-decoration: none; font-weight: 600; }
   .exports a:hover { text-decoration: underline; }
-  section { margin: 32px 0; }
+  section { margin: 40px 0; scroll-margin-top: 24px; }
   h2.section-title { font-size: 22px; margin-bottom: 6px; }
   .section-desc { color: var(--ink-dim); font-size: 13.5px; margin-bottom: 16px; max-width: 760px; }
-  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(36,33,29,0.03); }
   .grid { display: grid; gap: 12px; }
   .grid-2 { grid-template-columns: 1fr 1fr; }
   .grid-3 { grid-template-columns: repeat(3, 1fr); }
   .grid-4 { grid-template-columns: repeat(4, 1fr); }
   .grid-5 { grid-template-columns: repeat(5, 1fr); }
-  .stat-card { text-align: center; }
+  .stat-card { text-align: center; border-width: 1px; border-style: solid; border-color: var(--line); transition: transform 0.15s ease; }
   .stat-card .num { font-family: "Fraunces", serif; font-size: 30px; }
   .stat-card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); margin-top: 4px; }
+  .stat-card.tone-warn { background: #fdf6ec; border-color: #f0dcb8; }
+  .stat-card.tone-warn .num { color: var(--amber); }
+  .stat-card.tone-bad { background: #fdf1ef; border-color: #f3d3cd; }
+  .stat-card.tone-bad .num { color: var(--coral); }
+  .stat-card.tone-good { background: #ecf6ef; border-color: #cde8d5; }
+  .stat-card.tone-good .num { color: var(--sage); }
   .score-tile { text-align: center; padding: 18px 12px; }
   .score-tile .num { font-family: "Fraunces", serif; font-size: 32px; font-weight: 600; }
   .score-tile .label { font-size: 13px; font-weight: 600; margin-top: 4px; }
@@ -186,7 +192,9 @@ export function renderReportHtml(input: {
   ul.plain { padding-left: 20px; margin: 8px 0; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-  th { font-size: 10.5px; text-transform: uppercase; color: var(--ink-faint); }
+  th { font-size: 10.5px; text-transform: uppercase; color: var(--ink-faint); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  tbody tr:nth-child(even) { background: var(--surface-2); }
+  tbody tr:hover { background: #efe7d8; }
   .table-scroll { max-height: 420px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
   .pill { display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 10px; padding: 3px 9px; border-radius: 20px; text-transform: uppercase; white-space: nowrap; }
   .status-clean { background: #ecf6ef; color: var(--sage); }
@@ -212,12 +220,33 @@ export function renderReportHtml(input: {
   .list-item a:hover { text-decoration: underline; }
   .journey-stage { padding: 10px 0; border-bottom: 1px solid var(--line); }
   .journey-stage-head { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
-  .tabs { display: flex; gap: 8px; margin: 28px 0 0; border-bottom: 1px solid var(--line); }
-  .tab-btn { font-family: "IBM Plex Mono", monospace; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; padding: 10px 16px; background: none; border: none; cursor: pointer; color: var(--ink-dim); border-bottom: 2px solid transparent; }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .tabs { display: flex; gap: 4px; margin: 28px 0 0; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--paper); z-index: 5; padding-top: 4px; }
+  .tab-btn { font-family: "IBM Plex Mono", monospace; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; padding: 10px 18px; background: none; border: none; cursor: pointer; color: var(--ink-dim); border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
+  .tab-btn:hover { background: var(--surface-2); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; background: var(--surface); }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
+
+  /* Quick-jump section nav — a long report with many distinct sections
+     previously had no way to navigate except scrolling the whole thing. */
+  .quicknav { display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 18px 0 0; }
+  .quicknav a { font-size: 11.5px; font-family: "IBM Plex Mono", monospace; color: var(--ink-dim); text-decoration: none; padding: 5px 10px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+  .quicknav a:hover { color: var(--accent); border-color: var(--accent); }
+
   @media (max-width: 800px) { .grid-3, .grid-4, .grid-5 { grid-template-columns: repeat(2, 1fr); } }
+
+  /* Print fix: without this, only whichever tab happened to be active
+     on screen got included in a "Print / Save as PDF" export — the
+     other tab's entire content (Keywords, Feature Matrix, Integrations,
+     or all UX Designer content) silently vanished from the PDF with no
+     indication anything was missing. A printed report needs to be a
+     complete record regardless of which tab was showing. */
+  @media print {
+    .tab-panel { display: block !important; }
+    .tabs, .quicknav, .exports { display: none !important; }
+    th { position: static; }
+    .table-scroll { max-height: none; overflow: visible; }
+  }
 </style>
 </head>
 <body>
@@ -242,7 +271,7 @@ export function renderReportHtml(input: {
     <div class="section-desc">A quick check of how much of the site was actually inspected before interpreting the findings.</div>
     <div class="grid grid-4">
       <div class="card stat-card"><div class="num">${pages.length}</div><div class="label">Pages Crawled</div></div>
-      <div class="card stat-card"><div class="num">${pageErrors}</div><div class="label">Page Errors</div></div>
+      <div class="card stat-card ${pageErrors > 0 ? "tone-warn" : "tone-good"}"><div class="num">${pageErrors}</div><div class="label">Page Errors</div></div>
       <div class="card stat-card"><div class="num">${templateAnalysis.uniqueTemplateCount}</div><div class="label">Unique Templates</div></div>
       <div class="card stat-card"><div class="num">${componentAnalysis.uniqueComponentCount}</div><div class="label">Unique Components</div></div>
     </div>
@@ -263,21 +292,38 @@ export function renderReportHtml(input: {
     <button class="tab-btn active" onclick="showTab('ux', this)">UX Designer</button>
     <button class="tab-btn" onclick="showTab('content', this)">Content Strategist</button>
   </div>
+  <div class="quicknav">
+    <a href="#sec-plain-terms" onclick="jumpTo(event,'sec-plain-terms','ux')">In Plain Terms</a>
+    <a href="#sec-assessment" onclick="jumpTo(event,'sec-assessment','ux')">Assessment</a>
+    <a href="#sec-scorecard" onclick="jumpTo(event,'sec-scorecard','ux')">Scorecard</a>
+    <a href="#sec-heuristics" onclick="jumpTo(event,'sec-heuristics','ux')">Heuristics</a>
+    <a href="#sec-structure" onclick="jumpTo(event,'sec-structure','ux')">Site Structure</a>
+    <a href="#sec-templates" onclick="jumpTo(event,'sec-templates','ux')">Templates</a>
+    <a href="#sec-components" onclick="jumpTo(event,'sec-components','ux')">Components</a>
+    <a href="#sec-journeys" onclick="jumpTo(event,'sec-journeys','ux')">Journeys</a>
+    <a href="#sec-linking-map" onclick="jumpTo(event,'sec-linking-map','ux')">Linking Map</a>
+    <a href="#sec-content-findings" onclick="jumpTo(event,'sec-content-findings','content')">Content Findings</a>
+    <a href="#sec-keywords" onclick="jumpTo(event,'sec-keywords','content')">Keywords</a>
+    <a href="#sec-feature-matrix" onclick="jumpTo(event,'sec-feature-matrix','content')">Feature Matrix</a>
+    <a href="#sec-integrations" onclick="jumpTo(event,'sec-integrations','content')">Integrations</a>
+    <a href="#sec-link-health" onclick="jumpTo(event,'sec-link-health','content')">Link Health</a>
+    <a href="#sec-inventory" onclick="jumpTo(event,'sec-inventory',null)">Page Inventory</a>
+  </div>
 
   <div id="tab-ux" class="tab-panel active">
 
-    <section class="card">
+    <section id="sec-plain-terms">
       <h2 class="section-title">In Plain Terms</h2>
       <ul class="plain">${plainTerms.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>
     </section>
 
-    <section class="card">
+    <section id="sec-assessment">
       <h2 class="section-title">UX Lead's Assessment</h2>
       <div class="section-desc">A narrative read of the findings below, the way a senior UX lead would actually frame them in a review — not just restated numbers.</div>
       ${uxLeadAssessment.map((p) => `<p class="small">${esc(p)}</p>`).join("")}
     </section>
 
-    <section>
+    <section id="sec-scorecard">
       <h2 class="section-title">Scorecard</h2>
       <div class="section-desc">Each score is 0–100, where higher is healthier.</div>
       <div class="grid grid-5">
@@ -289,13 +335,13 @@ export function renderReportHtml(input: {
       </div>
     </section>
 
-    <section>
+    <section id="sec-heuristics">
       <h2 class="section-title">Heuristic Evaluation</h2>
       <div class="section-desc">Findings organized against Nielsen's 10 usability heuristics. 5 of 10 can be checked from a page crawl; the other 5 need a human walking through real interactions.</div>
       <div class="grid grid-2">${heuristics.map(renderHeuristicCard).join("")}</div>
     </section>
 
-    <section>
+    <section id="sec-structure">
       <h2 class="section-title">Site Structure</h2>
       <div class="section-desc">How the site is organized, and how many clicks it takes to reach each page from the homepage.</div>
       <div class="grid grid-2">
@@ -309,14 +355,14 @@ export function renderReportHtml(input: {
         </div>
       </div>
       <div class="grid grid-4" style="margin-top:12px">
-        <div class="card stat-card"><div class="num">${orphanPageCount}</div><div class="label">Orphan Pages</div></div>
+        <div class="card stat-card ${orphanPageCount > 0 ? "tone-warn" : "tone-good"}"><div class="num">${orphanPageCount}</div><div class="label">Orphan Pages</div></div>
         <div class="card stat-card"><div class="num">${maxClickDepth}</div><div class="label">Max Click Depth</div></div>
         <div class="card stat-card"><div class="num">${avgClickDepth}</div><div class="label">Avg Click Depth</div></div>
         <div class="card stat-card"><div class="num">${pagesOverThreeClicks}</div><div class="label">Pages &gt;3 Clicks Deep</div></div>
       </div>
     </section>
 
-    <section>
+    <section id="sec-templates">
       <h2 class="section-title">Page Templates</h2>
       <div class="section-desc">Pages grouped by their actual HTML structure, not by URL pattern or title. Click a template to see every page using it.</div>
       <div class="grid grid-4">
@@ -337,7 +383,7 @@ export function renderReportHtml(input: {
       </div>
     </section>
 
-    <section>
+    <section id="sec-components">
       <h2 class="section-title">Reusable UI Components</h2>
       <div class="section-desc">Semantically named recurring components (e.g. "Testimonial Card", "Editorial Teaser Card") — a rough inventory, not a substitute for the real component library. Click a component to see every page using it.</div>
       <div class="grid grid-2">
@@ -357,7 +403,7 @@ export function renderReportHtml(input: {
       </div>
     </section>
 
-    <section>
+    <section id="sec-journeys">
       <h2 class="section-title">Inferred User Journey Maps</h2>
       <div class="section-desc">Not real behavioral data — a crawler has no access to analytics or session recordings. This infers where each persona's goal-driven path most likely lives in the site's actual structure. Worth validating against real analytics if you have them.</div>
       <div class="card stat-card" style="max-width:200px; margin-bottom:16px"><div class="num">${journeyMap.journeysWithAnyPresence}</div><div class="label">Personas With Any Presence</div></div>
@@ -372,7 +418,7 @@ export function renderReportHtml(input: {
         .join("")}
     </section>
 
-    <section>
+    <section id="sec-linking-map">
       <h2 class="section-title">Internal Linking Map</h2>
       <div class="section-desc">A map of how pages link to each other (capped at 250 nodes for legibility). Bigger dots have more inbound links — tiny, disconnected dots are worth a look.</div>
       <div class="card">${renderLinkingMap(pages)}</div>
@@ -382,7 +428,7 @@ export function renderReportHtml(input: {
 
   <div id="tab-content" class="tab-panel">
 
-    <section>
+    <section id="sec-content-findings">
       <h2 class="section-title">Content Findings</h2>
       <div class="section-desc">Metadata, duplication, and readability issues detected across the crawl.</div>
       <div class="card">
@@ -402,7 +448,7 @@ export function renderReportHtml(input: {
       </div>
     </section>
 
-    <section>
+    <section id="sec-keywords">
       <h2 class="section-title">Keywords &amp; Phrases</h2>
       <div class="card table-scroll">
         <table><thead><tr><th>Keyword</th><th>Occurrences</th><th>Pages</th><th></th><th>Top Phrases</th><th>Occurrences</th></tr></thead>
@@ -414,7 +460,7 @@ export function renderReportHtml(input: {
       </div>
     </section>
 
-    <section>
+    <section id="sec-feature-matrix">
       <h2 class="section-title">Feature Matrix</h2>
       <div class="section-desc">Whether common website capabilities appear to be present — a discovery-phase signal, not a definitive functional inventory.</div>
       <div class="card table-scroll">
@@ -423,7 +469,7 @@ export function renderReportHtml(input: {
       </div>
     </section>
 
-    <section>
+    <section id="sec-integrations">
       <h2 class="section-title">Integrations</h2>
       <div class="section-desc">Third-party tools detected two ways: matching known script domains, and checking which global JavaScript variables actually initialized on each rendered page — the second catches tools regardless of which domain served the file from.</div>
       <div class="grid grid-2">
@@ -448,7 +494,7 @@ export function renderReportHtml(input: {
       </div>
     </section>
 
-    <section>
+    <section id="sec-link-health">
       <h2 class="section-title">External Link Health</h2>
       <div class="card table-scroll">
         <table><thead><tr><th>Broken URL</th><th>Status</th><th>Linked From</th></tr></thead>
@@ -462,7 +508,7 @@ export function renderReportHtml(input: {
 
   </div>
 
-  <section>
+  <section id="sec-inventory">
     <h2 class="section-title">Full Page Inventory</h2>
     <div class="card table-scroll">
       <table><thead><tr><th>URL</th><th>Status</th><th>Title</th><th>Words</th><th>Depth</th><th>Error</th></tr></thead>
@@ -477,6 +523,17 @@ export function renderReportHtml(input: {
     document.querySelectorAll(".tab-btn").forEach(function(el) { el.classList.remove("active"); });
     document.getElementById("tab-" + id).classList.add("active");
     btn.classList.add("active");
+  }
+
+  function jumpTo(event, sectionId, tabId) {
+    event.preventDefault();
+    if (tabId) {
+      const btnIndex = tabId === "ux" ? 0 : 1;
+      const btn = document.querySelectorAll(".tab-btn")[btnIndex];
+      showTab(tabId, btn);
+    }
+    const target = document.getElementById(sectionId);
+    if (target && typeof target.scrollIntoView === "function") target.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 </script>
 </body>
