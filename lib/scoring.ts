@@ -23,6 +23,7 @@ export type ScoreInputs = {
   missingTitleCount: number;
   missingMetaDescriptionCount: number;
   canonicalMissingCount: number;
+  duplicateTitlePageCount: number;
 };
 
 export type Scorecard = {
@@ -83,7 +84,15 @@ export function scoreSeo(inputs: ScoreInputs): number {
   const titleScore = pctScore(inputs.missingTitleCount, total);
   const descScore = pctScore(inputs.missingMetaDescriptionCount, total);
   const canonicalScore = pctScore(inputs.canonicalMissingCount, total);
-  return Math.round((titleScore * 0.4 + descScore * 0.4 + canonicalScore * 0.2) * 10) / 10;
+  // Duplicate titles were confirmed genuinely absent from this score
+  // before — a site could have hundreds of pages sharing an identical
+  // title (a real, direct SEO problem: search engines can't tell them
+  // apart) and it would have zero effect on the SEO pillar. Weighted
+  // comparably to missing titles themselves, since both are about the
+  // same underlying capability: can a search engine tell this page
+  // apart from every other page on the site.
+  const duplicateTitleScore = pctScore(inputs.duplicateTitlePageCount, total);
+  return Math.round((titleScore * 0.3 + descScore * 0.25 + canonicalScore * 0.15 + duplicateTitleScore * 0.3) * 10) / 10;
 }
 
 function band(score: number): Scorecard["uxMaturityBand"] {

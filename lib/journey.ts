@@ -52,7 +52,7 @@ export const JOURNEYS: JourneyDef[] = [
     description: "Someone evaluating the company as a potential employer and trying to apply.",
     stages: [
       { id: "discover_careers", name: "Discover Careers", description: "The landing point for anyone checking whether the company is hiring at all.", keywords: ["careers", "jobs", "join-us", "join_us", "work-with-us", "we-are-hiring"] },
-      { id: "browse_openings", name: "Browse Openings", description: "Actual job listings — specific open positions, not just a generic careers page.", keywords: ["position", "opening", "vacancy", "job-listing", "job_listing", "openings"], excludeKeywords: ["ward opening", "unit opening", "department opening", "clinic opening", "new opening"] },
+      { id: "browse_openings", name: "Browse Openings", description: "Actual job listings — specific open positions, not just a generic careers page.", keywords: ["position", "opening", "vacancy", "job-listing", "job_listing", "openings"], excludeKeywords: ["ward opening", "unit opening", "department opening", "clinic opening", "new opening", "medical unit", "acute medical", "new ward", "hospital opening", "facility opening", "now open", "grand opening"] },
       { id: "apply", name: "Apply", description: "Where someone actually submits an application.", keywords: ["apply", "application", "submit-resume", "submit_resume"] },
     ],
   },
@@ -63,7 +63,20 @@ export const JOURNEYS: JourneyDef[] = [
     stages: [
       { id: "sign_in", name: "Sign In", description: "Where a returning user authenticates.", keywords: ["login", "signin", "sign-in", "account", "my-account", "my_account"] },
       { id: "self_service", name: "Self-Service Help", description: "Documentation, FAQs, or a knowledge base someone can use without contacting a human.", keywords: ["faq", "help", "docs", "documentation", "knowledge-base", "knowledgebase", "kb"] },
-      { id: "contact_support", name: "Contact Support", description: "Where someone goes when self-service isn't enough and they need a real person.", keywords: ["support", "help-desk", "helpdesk", "ticket", "contact-support"] },
+      {
+        id: "contact_support",
+        name: "Contact Support",
+        description: "Where someone goes when self-service isn't enough and they need a real person.",
+        // Bare "support" was confirmed too broad in review: it matched
+        // any page mentioning patient support, cancer support, or
+        // population-health support — clinical/content pages, not
+        // actual customer-support channels. Narrowed to compound
+        // phrases that specifically mean "get help from a person,"
+        // plus explicit exclusions for the clinical-context false
+        // positives already observed.
+        keywords: ["customer support", "technical support", "help-desk", "helpdesk", "support ticket", "contact-support", "it support", "customer service"],
+        excludeKeywords: ["patient support", "cancer support", "clinical support", "population health", "oncology", "wellness support"],
+      },
     ],
   },
   {

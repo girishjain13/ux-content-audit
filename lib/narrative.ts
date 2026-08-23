@@ -139,13 +139,18 @@ export function generateUxLeadAssessment(input: NarrativeInputs): string[] {
     paragraphs.push(`On findability: ${seoSentences.join(" ")}`);
   }
 
+  // Orphan pages deliberately ranked below accessibility and
+  // thin-content issues here — confirmed feedback from a real manual
+  // review: for most sites, an orphan page is a content-ops cleanup
+  // ticket, not the single highest-leverage UX item, and leading with
+  // it understated genuinely higher-priority accessibility problems.
   const nextStep =
-    input.orphanPageCount > 0
-      ? `resolving the ${input.orphanPageCount} orphan page(s)`
-      : input.accessibilityIssuePages > 0
-        ? "working through the automated accessibility findings"
-        : input.thinContentCount > 0
-          ? "addressing the thin-content pages"
+    input.accessibilityIssuePages > 0
+      ? "working through the automated accessibility findings"
+      : input.thinContentCount > 0
+        ? "addressing the thin-content pages"
+        : input.orphanPageCount > 0
+          ? `resolving the ${input.orphanPageCount} orphan page(s)`
           : "reviewing the full findings list for the next round of polish";
   paragraphs.push(`Where to start next sprint: ${nextStep} — the highest-leverage, most concretely actionable item in this audit.`);
 

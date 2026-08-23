@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { detectForms } from "./formDetection";
+import { KNOWN_GLOBALS } from "./knownGlobals";
 
 /**
  * Matches the "Feature Matrix" sheet from the reference export exactly —
@@ -9,6 +10,14 @@ import { detectForms } from "./formDetection";
  * domains) — a feature genuinely present but named unusually (e.g. a
  * search page at /find-it instead of /search) can be missed. This is a
  * discovery-phase signal, not a definitive functional inventory.
+ *
+ * Several checks below cross-reference signals ALREADY detected
+ * elsewhere in this codebase (live global variables, external script
+ * domains) rather than only re-deriving from scratch — fixed after a
+ * real manual review caught the exact gap: a report's own Integrations
+ * section had already found Vimeo, while the Feature Matrix separately
+ * (and wrongly) reported "Video Content: No" on the same crawl, because
+ * the two checks never talked to each other.
  */
 
 const URL_PATTERN_FEATURES: { feature: string; pattern: RegExp }[] = [
@@ -17,15 +26,39 @@ const URL_PATTERN_FEATURES: { feature: string; pattern: RegExp }[] = [
   { feature: "Pricing / Plans", pattern: /\/(pricing|plans)(\/|$)/i },
   { feature: "Careers / Jobs", pattern: /\/(careers?|jobs)(\/|$)/i },
   { feature: "E-commerce (cart / checkout)", pattern: /\/(cart|checkout|shop|basket)(\/|$)/i },
-  { feature: "Store/Office Locations", pattern: /\/(locations?|branches|stores?|find-us|near-me|locate-a-dealer|find-a-dealer|dealer-locator|dealers?)(\/|$)/i },
+  // Broadened beyond "store/dealer" vocabulary — a real gap found on a
+  // healthcare site, where the equivalent feature is "find a hospital
+  // or clinic," not a retail-style locator, but is conceptually the
+  // exact same "find a physical location" capability.
+  { feature: "Store/Office Locations", pattern: /\/(locations?|branches|stores?|find-us|near-me|locate-a-dealer|find-a-dealer|dealer-locator|dealers?|hospitals?|clinics?|facilities|find-a-hospital|find-a-clinic)(\/|$)/i },
+  { feature: "User Login / Account", pattern: /\/(portal|login|sign-?in|my-?account|patient-?portal|patient-?login)(\/|$)/i },
+  { feature: "Media Contact", pattern: /\/(media-?contact|press-?contact|media-?kit|press-?kit|newsroom)(\/|$)/i },
 ];
 
+// Career-related destinations that live entirely on a different
+// domain (a separate ATS like an external careers subdomain, or a
+// third-party applicant-tracking platform) — a real gap: the "Careers"
+// feature was previously only detected if a page's OWN url matched,
+// missing a working external careers link sitting right in the nav.
+const EXTERNAL_CAREERS_PATTERN = /careers\.|\/careers(\/|$)|greenhouse\.io|lever\.co|myworkdayjobs\.com|smartrecruiters\.com|icims\.com|jobs\.lever\.co/i;
+
 const CHAT_WIDGET_DOMAINS = ["intercom.io", "intercomcdn", "drift.com", "zdassets.com", "livechatinc.com", "tawk.to", "hubspot.com/conversations"];
+const CHAT_SUPPORT_GLOBALS = new Set(KNOWN_GLOBALS.filter((g) => g.category === "Chat / Support").map((g) => g.globalVar));
+
+const VIDEO_HOSTING_DOMAINS = ["vimeo.com", "youtube.com", "youtube-nocookie.com", "wistia.com", "brightcove.com", "vidyard.com", "player.vimeo.com"];
 
 export type FeatureResult = { feature: string; detected: boolean; pagesFoundOn: number };
 
 export function detectFeaturesAcrossSite(
-  pages: { url: string; renderedDomHtml: string | null; hasMultipleLocales: boolean }[],
+  pages: {
+    url: string;
+    renderedDomHtml: string | null;
+    hasMultipleLocales: boolean;
+    internalLinks?: string[];
+    externalLinks?: string[];
+    detectedGlobals?: string[];
+    externalScriptDomains?: string[];
+  }[],
 ): FeatureResult[] {
   const counts = new Map<string, number>();
   const bump = (feature: string) => counts.set(feature, (counts.get(feature) ?? 0) + 1);
@@ -37,6 +70,33 @@ export function detectFeaturesAcrossSite(
       if (pattern.test(p.url)) bump(feature);
     }
     if (p.hasMultipleLocales) anyMultilingual = true;
+
+    // Cross-reference outbound links (both internal and external) for
+    // features that are commonly just a nav link to somewhere else
+    // entirely — a working external careers/ATS link, or a portal
+    // hosted on a separate subdomain, is still real evidence the
+    // feature exists even if we never crawl the destination itself.
+    const allLinks = [...(p.internalLinks ?? []), ...(p.externalLinks ?? [])];
+    if (allLinks.some((l) => EXTERNAL_CAREERS_PATTERN.test(l))) bump("Careers / Jobs");
+    if (allLinks.some((l) => /\/(portal|login|sign-?in|my-?account|patient-?portal|patient-?login|uae-?pass)(\/|$)/i.test(l))) {
+      bump("User Login / Account");
+    }
+
+    // Cross-reference already-detected live global variables — this is
+    // a strictly better signal than the static domain list below for
+    // anything already covered by lib/knownGlobals.ts, since it
+    // reflects what the page's real, executed code actually
+    // initialized rather than guessing from a script URL.
+    if ((p.detectedGlobals ?? []).some((g) => CHAT_SUPPORT_GLOBALS.has(g))) bump("Live Chat Widget");
+
+    // Cross-reference already-detected external script domains for
+    // video hosting — catches a video embed whose iframe never
+    // actually appears in static extraction (e.g. injected later by
+    // JS the extraction script's DOM snapshot didn't capture) but
+    // whose player script domain still shows up in Integrations.
+    if ((p.externalScriptDomains ?? []).some((d) => VIDEO_HOSTING_DOMAINS.some((v) => d.includes(v)))) {
+      bump("Video Content");
+    }
 
     if (!p.renderedDomHtml) continue;
     const html = p.renderedDomHtml;
@@ -88,6 +148,7 @@ export function detectFeaturesAcrossSite(
     "Contact Form",
     "Store/Office Locations",
     "Live Chat Widget",
+    "Media Contact",
   ];
 
   return featureOrder.map((feature) => {

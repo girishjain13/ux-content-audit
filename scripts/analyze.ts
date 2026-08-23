@@ -1,4 +1,5 @@
 import { classifyPage } from "../lib/pageClassifier.js";
+import { isPageError } from "../lib/crawler.js";
 import { classifyPageWithAi, aiClassificationAvailable } from "../lib/aiPageClassifier.js";
 import { rollUpTemplates, rollUpComponents } from "../lib/classificationRollup.js";
 import {
@@ -130,7 +131,7 @@ export async function analyzeSite(
   const componentAnalysis = rollUpComponents(classifications);
 
   // --- UX Lead ---
-  const brokenPages = pages.filter((p) => p.statusCode !== null && p.statusCode >= 400);
+  const brokenPages = pages.filter((p) => isPageError(p));
   if (brokenPages.length) {
     findings.push(
       makeFinding({
@@ -623,6 +624,7 @@ export async function analyzeSite(
     missingTitleCount: missingTitle.length,
     missingMetaDescriptionCount: missingMetaDescription.length,
     canonicalMissingCount: pages.filter((p) => !p.canonical).length,
+    duplicateTitlePageCount: duplicateTitleGroups.flat().length,
   });
 
   // --- Feature matrix, integrations, external link health, keywords ---
@@ -632,6 +634,10 @@ export async function analyzeSite(
       url: p.url,
       renderedDomHtml: p.renderedDomHtml || null,
       hasMultipleLocales: localePerPage[i].hreflang.length > 0,
+      internalLinks: p.internalLinks,
+      externalLinks: p.externalLinks,
+      detectedGlobals: p.detectedGlobals,
+      externalScriptDomains: p.renderedDomHtml ? extractScripts(p.renderedDomHtml, rootHost).externalDomains : [],
     })),
   );
 

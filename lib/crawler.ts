@@ -224,6 +224,24 @@ const AXE_SCRIPT = `(async () => {
         }));
       })()`;
 
+/**
+ * A single, authoritative definition of "this page has an error" —
+ * added specifically to fix a real, confirmed contradiction: the
+ * report's "Page Errors" stat only counted crawl-level failures
+ * (p.error — timeouts, navigation errors), while the "N pages
+ * returned an error status" narrative bullet separately counted
+ * HTTP-level failures (statusCode >= 400) via a different filter
+ * elsewhere. A page can trip one without the other, so the two
+ * numbers could legitimately disagree — which reads as a bug to
+ * anyone comparing them, even though each was individually
+ * "correct" by its own narrower definition. Unifying to one function,
+ * imported everywhere a page-error count is needed, makes that kind
+ * of drift structurally impossible rather than just less likely.
+ */
+export function isPageError(p: { error: string | null; statusCode: number | null }): boolean {
+  return Boolean(p.error) || (p.statusCode !== null && p.statusCode >= 400);
+}
+
 async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string): Promise<CrawledPage> {
   const started = Date.now();
   try {

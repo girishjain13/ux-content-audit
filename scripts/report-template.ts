@@ -3,6 +3,7 @@ import type { CrawledPage } from "../lib/crawler.js";
 import type { TreeNode } from "../lib/siteTree.js";
 
 import type { JourneyStageResult } from "../lib/journey.js";
+import { isPageError } from "../lib/crawler.js";
 
 function esc(s: string | null | undefined): string {
   if (s == null) return "";
@@ -122,7 +123,7 @@ export function renderReportHtml(input: {
     journeyMap,
   } = analysis;
 
-  const pageErrors = pages.filter((p) => p.error).length;
+  const pageErrors = pages.filter((p) => isPageError(p)).length;
   const crawlComplete = pages.length < 5000; // true unless the hard ceiling was hit
 
   const maxSectionCount = Math.max(1, ...topLevelSections.map((s) => s.count));
