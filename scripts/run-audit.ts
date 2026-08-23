@@ -81,37 +81,63 @@ async function main() {
   writeFileSync(`${outDir}/report.html`, html);
 
   // Raw JSON alongside the HTML report, for anyone who wants to build
-  // their own view on top of the same data.
-  writeFileSync(`${outDir}/audit-data.json`, JSON.stringify({ startUrl, clientName, crawledAt, pages, analysis }, null, 2));
+  // their own view on top of the same data. Deliberately strips
+  // renderedDomHtml before serializing — that field is the full HTML
+  // of every single crawled page (up to 200KB each), which nobody
+  // consuming this JSON file actually needs (every genuinely useful
+  // extracted field — title, links, word count, etc. — is already
+  // present on each page object without it). On a large crawl, keeping
+  // it in was enough raw text to exceed V8's ~512MB max string length
+  // and crash JSON.stringify entirely — confirmed in production on a
+  // multi-thousand-page run that had already spent an hour crawling
+  // and analyzing successfully before failing at this exact step.
+  try {
+    const pagesForJson = pages.map(({ renderedDomHtml, ...rest }) => rest);
+    writeFileSync(`${outDir}/audit-data.json`, JSON.stringify({ startUrl, clientName, crawledAt, pages: pagesForJson, analysis }));
+  } catch (err) {
+    // This export failing should never take the HTML report, CSV, or
+    // XLSX down with it — those are independently valuable and don't
+    // share this risk. Log clearly and keep going rather than crash
+    // the whole run over one non-essential export format.
+    console.error("Failed to write audit-data.json (report.html and other exports are unaffected):", err instanceof Error ? err.message : err);
+  }
 
   // CSV of findings, for anyone who wants to drop this straight into a
   // spreadsheet rather than reading the HTML report.
-  const csvEscape = (v: unknown) => {
-    const str = v == null ? "" : String(v);
-    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-  };
-  const csvHeaders = ["Type", "Title", "Severity", "Effort Bucket", "Personas", "Affected Pages", "Description", "Detection Method"];
-  const csvRows = analysis.findings.map((f) =>
-    [f.findingType, f.title, f.severity, f.effortBucket, f.personas.join("|"), f.affectedPageCount, f.description, f.detectionMethod]
-      .map(csvEscape)
-      .join(","),
-  );
-  writeFileSync(`${outDir}/audit-data.csv`, [csvHeaders.join(","), ...csvRows].join("\n"));
+  try {
+    const csvEscape = (v: unknown) => {
+      const str = v == null ? "" : String(v);
+      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+    };
+    const csvHeaders = ["Type", "Title", "Severity", "Effort Bucket", "Personas", "Affected Pages", "Description", "Detection Method"];
+    const csvRows = analysis.findings.map((f) =>
+      [f.findingType, f.title, f.severity, f.effortBucket, f.personas.join("|"), f.affectedPageCount, f.description, f.detectionMethod]
+        .map(csvEscape)
+        .join(","),
+    );
+    writeFileSync(`${outDir}/audit-data.csv`, [csvHeaders.join(","), ...csvRows].join("\n"));
+  } catch (err) {
+    console.error("Failed to write audit-data.csv (other exports are unaffected):", err instanceof Error ? err.message : err);
+  }
 
   // Screenshots for whichever pages are the "example" for a unique
   // template or component — a small, bounded set, not every page in
   // the crawl. Deduped since several templates/components can share
   // the same example URL.
-  const exampleUrls = [
-    ...analysis.templateAnalysis.templates.map((t) => t.exampleUrl),
-    ...analysis.componentAnalysis.components.map((c) => c.exampleUrl),
-  ];
-  console.log(`Capturing screenshots for ${new Set(exampleUrls).size} example page(s)...`);
-  const screenshots = await captureScreenshots(exampleUrls);
+  try {
+    const exampleUrls = [
+      ...analysis.templateAnalysis.templates.map((t) => t.exampleUrl),
+      ...analysis.componentAnalysis.components.map((c) => c.exampleUrl),
+    ];
+    console.log(`Capturing screenshots for ${new Set(exampleUrls).size} example page(s)...`);
+    const screenshots = await captureScreenshots(exampleUrls);
 
-  console.log("Building Excel report...");
-  const xlsxBuffer = await buildExcelReport({ startUrl, clientName, crawledAt, pages, analysis, screenshots });
-  writeFileSync(`${outDir}/audit-data.xlsx`, Buffer.from(xlsxBuffer));
+    console.log("Building Excel report...");
+    const xlsxBuffer = await buildExcelReport({ startUrl, clientName, crawledAt, pages, analysis, screenshots });
+    writeFileSync(`${outDir}/audit-data.xlsx`, Buffer.from(xlsxBuffer));
+  } catch (err) {
+    console.error("Failed to build the Excel export (report.html and other exports are unaffected):", err instanceof Error ? err.message : err);
+  }
 
   console.log(`Report written to ${outDir}/report.html`);
 }
