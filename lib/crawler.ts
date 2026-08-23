@@ -30,6 +30,7 @@ export type CrawledPage = {
   canonical: string | null;
   wordCount: number;
   htmlLang: string | null;
+  htmlDir: string | null;
   hreflangLinks: { locale: string; url: string }[];
   renderedDomHtml: string;
   isClientRendered: boolean;
@@ -102,6 +103,7 @@ export function buildExtractionScript(rootHost: string): string {
       const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute("href") || null;
       const wordCount = (document.body?.innerText || "").trim().split(/\\s+/).filter(Boolean).length;
       const htmlLang = document.documentElement.getAttribute("lang") || null;
+      const htmlDir = document.documentElement.getAttribute("dir") || null;
 
       const hreflangLinks = [];
       for (const link of document.querySelectorAll('link[rel="alternate"][hreflang]')) {
@@ -133,7 +135,7 @@ export function buildExtractionScript(rootHost: string): string {
           // mailto/tel/sms are expected, normal, not bugs — only flag
           // genuinely broken schemes (typos, stray fragments-as-hrefs,
           // anything else) as a real finding.
-          const isBenignScheme = protocol === "mailto:" || protocol === "tel:" || protocol === "sms:" || href.startsWith("#");
+          const isBenignScheme = protocol === "mailto:" || protocol === "tel:" || protocol === "sms:" || protocol === "whatsapp:" || href.startsWith("#");
           if (!isBenignScheme && nonFunctionalHrefs.length < 20) nonFunctionalHrefs.push(href);
           continue;
         }
@@ -194,14 +196,26 @@ export function buildExtractionScript(rootHost: string): string {
       }
 
       return {
-        title, metaDescription, h1Text, canonical, wordCount, htmlLang, hreflangLinks,
+        title, metaDescription, h1Text, canonical, wordCount, htmlLang, htmlDir, hreflangLinks,
         internalLinks, externalLinks, images, documents, interactions, isClientRendered, detectedGlobals, nonFunctionalHrefs,
       };
     })()`;
 }
 
 const AXE_SCRIPT = `(async () => {
-        const results = await axe.run(document, { resultTypes: ["violations"] });
+        // iframes: true is a real, functioning axe-core option (verified
+        // against the actual installed 4.10.2 source) — catches
+        // same-origin iframe content. Deliberately NOT setting
+        // shadowDom: true here — verified against the same source that
+        // axe-core never reads options.shadowDom at all; shadow DOM
+        // piercing already happens automatically without any flag, so
+        // this would be a silently-ignored no-op, not a real config.
+        // Cross-origin iframes (third-party booking widgets, chat
+        // widgets) are a separate, harder problem this can't solve —
+        // same-origin policy blocks page.evaluate() from reaching them
+        // regardless of any axe option; that needs Playwright's own
+        // page.frames() API run as a distinct pass, not built here.
+        const results = await axe.run(document, { resultTypes: ["violations"], iframes: true });
         return results.violations.map((v) => ({
           id: v.id,
           impact: v.impact || "minor",
@@ -213,25 +227,48 @@ const AXE_SCRIPT = `(async () => {
 async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string): Promise<CrawledPage> {
   const started = Date.now();
   try {
-    // Confirmed root cause from an external audit review: "networkidle"
-    // waits for zero network activity for 500ms — but persistent
-    // telemetry/tracking connections (Microsoft Clarity, heatmap tools,
-    // social-SDK beacons) can keep at least one socket open more or
-    // less permanently, meaning the page never reaches "idle" at all
-    // and just times out, producing a null/empty record for an
-    // otherwise perfectly real, working page. "domcontentloaded" plus
-    // a fixed settle delay avoids waiting on network activity that may
-    // never actually stop.
+    // Hybrid wait strategy: get networkidle's real benefit (it genuinely
+    // does catch real hydration completion better than a fixed delay)
+    // when a page cooperates, but never let it hang indefinitely the
+    // way the original flat "networkidle" wait did — confirmed root
+    // cause of real production timeouts was persistent telemetry
+    // connections (Clarity, heatmap tools, social-SDK beacons) that
+    // keep a socket open more or less permanently, so a page could
+    // never reach true "idle". Racing it against a hard cap gets both
+    // properties at once.
     let response;
     try {
       response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
-      await page.waitForTimeout(1500); // let client-side hydration/rendering settle
+      await Promise.race([page.waitForLoadState("networkidle"), page.waitForTimeout(5000)]);
     } catch (navErr) {
       // One retry with an even lighter wait condition before giving up
       // entirely — a page that's slow once isn't necessarily broken.
       response = await page.goto(url, { waitUntil: "commit", timeout: 20000 });
       await page.waitForTimeout(2000);
     }
+
+    // Progressive scroll to trigger IntersectionObserver-gated content
+    // (lazy-loaded images, infinite-scroll cards, video containers)
+    // before extraction — without this, anything gated behind scroll
+    // position looks identical to genuinely missing content (e.g.
+    // undercounting real image-alt violations on image-heavy pages).
+    // Returns to the top afterward so sticky nav/landmark positioning
+    // isn't disturbed for the actual extraction pass.
+    try {
+      await page.evaluate(async () => {
+        const step = 800;
+        const height = document.body.scrollHeight;
+        for (let y = 0; y < height; y += step) {
+          window.scrollTo(0, y);
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        window.scrollTo(0, 0);
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+    } catch {
+      /* non-critical — extraction still proceeds on whatever rendered without it */
+    }
+
     const statusCode = response ? response.status() : null;
     const lastModified = response?.headers()["last-modified"] ?? null;
     const renderedDomHtml = await page.content();
@@ -243,6 +280,7 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       canonical: string | null;
       wordCount: number;
       htmlLang: string | null;
+  htmlDir: string | null;
       hreflangLinks: { locale: string; url: string }[];
       internalLinks: string[];
       externalLinks: string[];
@@ -288,6 +326,7 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       canonical: null,
       wordCount: 0,
       htmlLang: null,
+      htmlDir: null,
       hreflangLinks: [],
       renderedDomHtml: "",
       isClientRendered: false,
@@ -328,7 +367,9 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
   }
 
   const browser = await chromium.launch();
-  const context = await browser.newContext();
+  let context = await browser.newContext();
+  const RECYCLE_EVERY_N_PAGES = 50;
+  let pagesSinceRecycle = 0;
 
   try {
     while (queue.length > 0 && results.length < maxPages) {
@@ -338,7 +379,8 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
       const batchResults = await Promise.all(
         batch.map(async ({ url, depth }) => {
           if (respectRobots && !canFetch(robotsTxt, url)) {
-            return { url, finalUrl: url, statusCode: null, responseTimeMs: 0, depth, title: null, metaDescription: null, h1Text: null, canonical: null, wordCount: 0, htmlLang: null, hreflangLinks: [], renderedDomHtml: "", isClientRendered: false, internalLinks: [], externalLinks: [], images: [], documents: [], videos: [], interactions: [], accessibilityViolations: [], detectedGlobals: [], nonFunctionalHrefs: [], lastModified: null, error: "blocked_by_robots_txt" } as CrawledPage;
+            return { url, finalUrl: url, statusCode: null, responseTimeMs: 0, depth, title: null, metaDescription: null, h1Text: null, canonical: null, wordCount: 0, htmlLang: null,
+      htmlDir: null, hreflangLinks: [], renderedDomHtml: "", isClientRendered: false, internalLinks: [], externalLinks: [], images: [], documents: [], videos: [], interactions: [], accessibilityViolations: [], detectedGlobals: [], nonFunctionalHrefs: [], lastModified: null, error: "blocked_by_robots_txt" } as CrawledPage;
           }
           const page = await context.newPage();
           try {
@@ -353,6 +395,7 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
 
       for (const result of batchResults) {
         results.push(result);
+        pagesSinceRecycle++;
         if (result.depth < maxDepth) {
           for (const link of result.internalLinks) {
             if (seen.has(link) || results.length + queue.length >= maxPages) continue;
@@ -363,9 +406,24 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
         }
       }
 
+      // Periodic recycle: individual pages were already closed after
+      // each use, but the single browser context persisting across an
+      // entire 5,000-page crawl was never itself recycled — plausible
+      // real memory accumulation (leaked listeners, growing internal
+      // caches) over a very long run, the same class of at-scale
+      // problem that already caused one production failure earlier in
+      // this project. Closing and relaunching a fresh context
+      // periodically is a standard, well-known mitigation.
+      if (pagesSinceRecycle >= RECYCLE_EVERY_N_PAGES) {
+        await context.close();
+        context = await browser.newContext();
+        pagesSinceRecycle = 0;
+      }
+
       options.onProgress?.(results.length, queue.length);
     }
   } finally {
+    await context.close();
     await browser.close();
   }
 

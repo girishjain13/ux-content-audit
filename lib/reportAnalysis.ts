@@ -21,6 +21,38 @@ const BLOCK_TAGS = "p|div|h[1-6]|li|br|tr|td|section|article|header|footer|nav|u
  * Good enough for a directional readability signal, not a precise
  * linguistic measurement.
  */
+/**
+ * Coleman-Liau Index — added alongside Flesch specifically to address a
+ * real, confirmed weakness: Flesch's syllable-counting formula
+ * penalizes any long word equally, regardless of whether it's genuinely
+ * complex prose or just a common, expected term in context (e.g.
+ * "Gastroenterology" or "Ophthalmology" on a hospital site's own
+ * department pages — words a patient audience already recognizes,
+ * not evidence of poor writing). Coleman-Liau uses letter-count and
+ * sentence-count instead of syllable-count, so long-but-common domain
+ * terminology doesn't get the same syllable-based penalty. This is a
+ * general fix (any specialized vocabulary — legal, technical, medical
+ * — benefits), not a domain-specific dictionary that would need
+ * separate curation and maintenance per vertical.
+ *
+ * Score interpretation: roughly maps to U.S. grade level (e.g. 8 ≈
+ * 8th-grade reading level), lower is easier — opposite direction from
+ * Flesch Reading Ease, where higher is easier.
+ */
+export function colemanLiauIndex(text: string): number | null {
+  const words = text.match(/[a-zA-Z']+/g) ?? [];
+  if (words.length < 20) return null; // too little text for a meaningful score
+
+  const sentences = text.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+  const sentenceCount = Math.max(sentences.length, 1);
+  const letterCount = words.reduce((sum, w) => sum + w.replace(/[^a-zA-Z]/g, "").length, 0);
+
+  const L = (letterCount / words.length) * 100;
+  const S = (sentenceCount / words.length) * 100;
+  const score = 0.0588 * L - 0.296 * S - 15.8;
+  return Math.round(score * 10) / 10;
+}
+
 export function fleschReadingEase(text: string): number | null {
   const words = text.match(/[a-zA-Z']+/g) ?? [];
   if (words.length < 20) return null; // too little text for a meaningful score

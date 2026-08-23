@@ -9,7 +9,29 @@
  * real analytics, not a replacement for that data.
  */
 
-export type JourneyStageDef = { id: string; name: string; description: string; keywords: string[] };
+export type JourneyStageDef = {
+  id: string;
+  name: string;
+  description: string;
+  keywords: string[];
+  /**
+   * Keywords that disqualify an otherwise-matching page. Added to fix a
+   * real, confirmed bug: plain substring matching had zero domain
+   * scoping, so "service" (a Consideration-stage keyword) matched
+   * "investor-services" — an investor-relations contact page — for the
+   * Prospective Customer journey. A page matching a positive keyword
+   * but also containing an exclude keyword is treated as not matching
+   * this stage at all.
+   */
+  excludeKeywords?: string[];
+  /** If set, a page must fall under one of these URL path prefixes to
+   * be eligible for this stage at all, checked before keyword matching.
+   * Scopes a persona's journey to the site sections it actually
+   * belongs in (e.g. a "Prospective Customer" journey shouldn't ever
+   * resolve to a page under /investors/, regardless of what words
+   * happen to appear in its title). */
+  restrictToPathPrefixes?: string[];
+};
 export type JourneyDef = { id: string; name: string; description: string; stages: JourneyStageDef[] };
 
 export const JOURNEYS: JourneyDef[] = [
@@ -18,10 +40,10 @@ export const JOURNEYS: JourneyDef[] = [
     name: "Prospective Customer",
     description: "A new visitor evaluating whether to become a customer — the classic top-of-funnel to conversion path.",
     stages: [
-      { id: "awareness", name: "Awareness", description: "Content someone finds before they know your product/company — top-of-funnel, informational.", keywords: ["blog", "article", "insight", "guide", "resource", "news", "learn"] },
-      { id: "consideration", name: "Consideration", description: "Pages that help someone evaluate fit — services, products, case studies.", keywords: ["about", "service", "product", "feature", "solution", "case-study", "case_study", "portfolio", "work"] },
-      { id: "decision", name: "Decision", description: "Pages aimed at someone close to choosing — pricing, plans, demos, comparisons.", keywords: ["pricing", "plans", "demo", "trial", "quote", "compare", "vs"] },
-      { id: "action", name: "Action / Conversion", description: "Where the actual conversion happens — signup, checkout, booking, contact.", keywords: ["signup", "sign-up", "register", "checkout", "cart", "book", "apply", "contact", "buy", "shop"] },
+      { id: "awareness", name: "Awareness", description: "Content someone finds before they know your product/company — top-of-funnel, informational.", keywords: ["blog", "article", "insight", "guide", "resource", "news", "learn"], excludeKeywords: ["investor", "shareholder"] },
+      { id: "consideration", name: "Consideration", description: "Pages that help someone evaluate fit — services, products, case studies.", keywords: ["about", "service", "product", "feature", "solution", "case-study", "case_study", "portfolio", "work"], excludeKeywords: ["investor", "shareholder", "press-release", "media-centre"] },
+      { id: "decision", name: "Decision", description: "Pages aimed at someone close to choosing — pricing, plans, demos, comparisons.", keywords: ["pricing", "plans", "demo", "trial", "quote", "compare", "vs"], excludeKeywords: ["investor", "shareholder"] },
+      { id: "action", name: "Action / Conversion", description: "Where the actual conversion happens — signup, checkout, booking, contact.", keywords: ["signup", "sign-up", "register", "checkout", "cart", "book", "apply", "contact", "buy", "shop"], excludeKeywords: ["investor", "media-contact", "press-contact"] },
     ],
   },
   {
@@ -30,7 +52,7 @@ export const JOURNEYS: JourneyDef[] = [
     description: "Someone evaluating the company as a potential employer and trying to apply.",
     stages: [
       { id: "discover_careers", name: "Discover Careers", description: "The landing point for anyone checking whether the company is hiring at all.", keywords: ["careers", "jobs", "join-us", "join_us", "work-with-us", "we-are-hiring"] },
-      { id: "browse_openings", name: "Browse Openings", description: "Actual job listings — specific open positions, not just a generic careers page.", keywords: ["position", "opening", "vacancy", "job-listing", "job_listing", "openings"] },
+      { id: "browse_openings", name: "Browse Openings", description: "Actual job listings — specific open positions, not just a generic careers page.", keywords: ["position", "opening", "vacancy", "job-listing", "job_listing", "openings"], excludeKeywords: ["ward opening", "unit opening", "department opening", "clinic opening", "new opening"] },
       { id: "apply", name: "Apply", description: "Where someone actually submits an application.", keywords: ["apply", "application", "submit-resume", "submit_resume"] },
     ],
   },
@@ -51,15 +73,36 @@ export const JOURNEYS: JourneyDef[] = [
     stages: [
       { id: "company_info", name: "Company Info", description: "Background on who the company is — leadership, mission, history.", keywords: ["about", "company", "who-we-are", "leadership", "our-team", "our_team"] },
       { id: "news_press", name: "News & Press", description: "Press releases, media coverage, or company announcements.", keywords: ["press", "media", "newsroom", "press-release", "press_release", "announcement"] },
-      { id: "investor_relations", name: "Investor Relations", description: "Financial reports, shareholder information — relevant only to publicly-relevant or funded companies.", keywords: ["investor", "investors", "shareholder", "financial-report", "financial_report", "/ir/", "ir-"] },
+      {
+        id: "investor_relations",
+        name: "Investor Relations",
+        description: "Financial reports, shareholder information — relevant only to publicly-relevant or funded companies.",
+        keywords: ["investor", "investors", "shareholder", "financial-report", "financial_report", "/ir/", "ir-"],
+        // Restricting to an actual /investors/ (or /corporate/) path
+        // prefix, rather than relying on keyword matching alone, is
+        // what prevents an unrelated page that happens to mention
+        // "growth" or "capital" in a clinical/product context from
+        // ever being eligible for this stage in the first place.
+        restrictToPathPrefixes: ["/investors", "/investor", "/corporate/investor", "/ir"],
+      },
       { id: "media_contact", name: "Media Contact", description: "A dedicated way for press/investors to reach out, distinct from general customer contact.", keywords: ["media-contact", "media_contact", "press-contact", "press_contact"] },
     ],
   },
 ];
 
-function matchesStage(url: string, title: string | null, keywords: string[]): boolean {
+function matchesStage(url: string, title: string | null, stage: JourneyStageDef): boolean {
+  if (stage.restrictToPathPrefixes?.length) {
+    let path = "";
+    try {
+      path = new URL(url).pathname.toLowerCase();
+    } catch {
+      return false;
+    }
+    if (!stage.restrictToPathPrefixes.some((prefix) => path.startsWith(prefix.toLowerCase()))) return false;
+  }
   const haystack = `${url} ${title ?? ""}`.toLowerCase();
-  return keywords.some((kw) => haystack.includes(kw));
+  if (stage.excludeKeywords?.some((kw) => haystack.includes(kw.toLowerCase()))) return false;
+  return stage.keywords.some((kw) => haystack.includes(kw.toLowerCase()));
 }
 
 export type JourneyStageResult = {
@@ -89,7 +132,7 @@ function buildSingleJourney(
 ): JourneyResult {
   const stagesOut: JourneyStageResult[] = journeyDef.stages.map((stage) => {
     const matches = pages.filter(
-      (p) => p.statusCode !== null && p.statusCode < 400 && matchesStage(p.url, p.title, stage.keywords),
+      (p) => p.statusCode !== null && p.statusCode < 400 && matchesStage(p.url, p.title, stage),
     );
     if (!matches.length) {
       return { id: stage.id, name: stage.name, description: stage.description, present: false, pageCount: 0, exampleUrl: null, clickDepth: null };

@@ -6,6 +6,7 @@ import {
   countImagesAndMissingAlt,
   extractScripts,
   fleschReadingEase,
+  colemanLiauIndex,
   findNearDuplicateClusters,
   classifyIntegrations,
   topKeywords,
@@ -260,22 +261,32 @@ export async function analyzeSite(
     );
   }
 
+  // Requiring agreement between Flesch and Coleman-Liau specifically
+  // reduces a real false-positive pattern: Flesch's syllable-counting
+  // penalizes any long word equally, so content that's simply written
+  // but uses expected domain vocabulary (medical, legal, technical
+  // terms a reader in that context already recognizes) can score as
+  // "very difficult" on Flesch alone despite genuinely simple sentence
+  // structure. Coleman-Liau (letter/sentence-based, not syllable-based)
+  // is far less swayed by vocabulary alone — if it disagrees with
+  // Flesch's harsh read, that's a real signal the page probably isn't
+  // actually as hard to read as Flesch implies.
   const readabilityScores = pageTexts
-    .map((pt) => ({ url: pt.url, score: fleschReadingEase(pt.text) }))
-    .filter((r): r is { url: string; score: number } => r.score !== null);
-  const difficultPages = readabilityScores.filter((r) => r.score < 30);
+    .map((pt) => ({ url: pt.url, flesch: fleschReadingEase(pt.text), cli: colemanLiauIndex(pt.text) }))
+    .filter((r): r is { url: string; flesch: number; cli: number } => r.flesch !== null && r.cli !== null);
+  const difficultPages = readabilityScores.filter((r) => r.flesch < 30 && r.cli >= 14);
   if (difficultPages.length) {
     findings.push(
       makeFinding({
         findingType: "low_readability",
         title: `${difficultPages.length} page(s) score as "very difficult to read"`,
-        description: "Flesch Reading Ease below 30 — worth a plain-language review.",
+        description: "Flesch Reading Ease below 30 AND Coleman-Liau Index at or above a college reading level — flagged only when both metrics agree, to avoid penalizing pages that are simply written but use expected domain vocabulary.",
         severity: "low",
         effortBucket: "custom_dev",
         personas: ["content"],
         affectedPageCount: difficultPages.length,
         affectedUrlsSample: difficultPages.slice(0, 10).map((p) => p.url),
-        detectionMethod: "Flesch Reading Ease formula on extracted visible text",
+        detectionMethod: "Flesch Reading Ease < 30 AND Coleman-Liau Index >= 14, both on extracted visible text",
       }),
     );
   }
@@ -361,6 +372,63 @@ export async function analyzeSite(
         affectedPageCount: pagesWithNonFunctionalHrefs.length,
         affectedUrlsSample: pagesWithNonFunctionalHrefs.slice(0, 10).map((p) => p.url),
         detectionMethod: "href attribute resolved to a non-http(s), non-benign protocol",
+      }),
+    );
+  }
+
+  // RTL layout validation: pages under Arabic/Hebrew locale paths should
+  // declare dir="rtl" and a matching lang code. A mismatch here usually
+  // means the page's text renders left-to-right despite RTL content —
+  // a real, visible layout bug, not a cosmetic nit.
+  const RTL_PATH_PATTERN = /\/(ar|he)(\/|$|-)/i;
+  const rtlPathPages = pages.filter((p) => !p.error && RTL_PATH_PATTERN.test(new URL(p.url).pathname));
+  const rtlMismatchPages = rtlPathPages.filter((p) => p.htmlDir?.toLowerCase() !== "rtl");
+  if (rtlMismatchPages.length) {
+    findings.push(
+      makeFinding({
+        findingType: "rtl_dir_mismatch",
+        title: `${rtlMismatchPages.length} page(s) under an Arabic/Hebrew locale path are missing dir="rtl"`,
+        description: "Pages whose URL indicates a right-to-left locale (/ar/, /he/) should declare dir=\"rtl\" on <html> — without it, text and layout render left-to-right despite RTL content.",
+        severity: "high",
+        effortBucket: "config",
+        personas: ["ux", "content"],
+        affectedPageCount: rtlMismatchPages.length,
+        affectedUrlsSample: rtlMismatchPages.slice(0, 10).map((p) => p.url),
+        detectionMethod: "URL path matches an /ar/ or /he/ locale segment, but html[dir] is not \"rtl\"",
+      }),
+    );
+  }
+
+  // Staging/temp-domain external links: a production page linking out
+  // to a staging or temporary-hosting domain is a real governance
+  // red flag — almost always a leftover dev reference that should
+  // have been swapped before launch, not a false positive to filter.
+  const STAGING_DOMAIN_PATTERN = /\.mybluehost\.me$|(^|\.)localhost$|(^|\.)staging\.|(^|\.)dev\.|(^|\.)test\.|\.ngrok\.io$|\.vercel\.app$|\.netlify\.app$/i;
+  const stagingLinkPages: { pageUrl: string; targetHost: string }[] = [];
+  for (const p of pages) {
+    for (const ext of p.externalLinks) {
+      try {
+        const host = new URL(ext).host;
+        if (STAGING_DOMAIN_PATTERN.test(host)) stagingLinkPages.push({ pageUrl: p.url, targetHost: host });
+      } catch {
+        /* skip unparseable */
+      }
+    }
+  }
+  if (stagingLinkPages.length) {
+    const uniquePages = [...new Set(stagingLinkPages.map((s) => s.pageUrl))];
+    const uniqueHosts = [...new Set(stagingLinkPages.map((s) => s.targetHost))];
+    findings.push(
+      makeFinding({
+        findingType: "staging_domain_link",
+        title: `${uniquePages.length} page(s) link to a staging/temporary domain (${uniqueHosts.slice(0, 3).join(", ")}${uniqueHosts.length > 3 ? ", …" : ""})`,
+        description: "A live page linking to a staging or temporary hosting domain is almost always a leftover development reference that should be replaced before (or as soon as possible after) launch.",
+        severity: "high",
+        effortBucket: "config",
+        personas: ["business"],
+        affectedPageCount: uniquePages.length,
+        affectedUrlsSample: uniquePages.slice(0, 10),
+        detectionMethod: "External link hostname matches a known staging/temp-hosting domain pattern",
       }),
     );
   }
