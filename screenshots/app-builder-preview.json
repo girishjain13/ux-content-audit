@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Northline",
+      "hasCanvas": false,
+      "bodyTextLen": 1001,
+      "bodyTextHash": "0620804a2c3c0958d7a6c7d81208e41a88e7e63121aa34f3bd1f35c03318f55e",
+      "bodyTextPrefix": "N Northline UX lead audits for JS-heavy sites UX LEAD · CONTENT ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Northline",
+      "hasCanvas": false,
+      "bodyTextLen": 1025,
+      "bodyTextHash": "d480ad43f53bfb3fbc1d40cfd58fe53a2c26ac0d875599d13b0017534cd6c824",
+      "bodyTextPrefix": "N Northline UX LEAD · CONTENT STRATEGIST Audits that wait for th",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}
