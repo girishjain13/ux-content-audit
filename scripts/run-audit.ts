@@ -120,17 +120,23 @@ async function main() {
     console.error("Failed to write audit-data.csv (other exports are unaffected):", err instanceof Error ? err.message : err);
   }
 
-  // Screenshots for whichever pages are the "example" for a unique
-  // template or component — a small, bounded set, not every page in
-  // the crawl. Deduped since several templates/components can share
-  // the same example URL.
+  // Screenshots are keyed per template/component (not per URL) so two
+  // rows that share a page still get distinct captures — components
+  // additionally clip to their DOM selector when available.
   try {
-    const exampleUrls = [
-      ...analysis.templateAnalysis.templates.map((t) => t.exampleUrl),
-      ...analysis.componentAnalysis.components.map((c) => c.exampleUrl),
+    const targets = [
+      ...analysis.templateAnalysis.templates.map((t) => ({
+        key: `template:${t.name}::${t.layoutGrid}`,
+        url: t.exampleUrl,
+      })),
+      ...analysis.componentAnalysis.components.map((c) => ({
+        key: `component:${c.standardName}`,
+        url: c.exampleUrl,
+        selector: c.domSelector || undefined,
+      })),
     ];
-    console.log(`Capturing screenshots for ${new Set(exampleUrls).size} example page(s)...`);
-    const screenshots = await captureScreenshots(exampleUrls);
+    console.log(`Capturing screenshots for ${targets.length} template/component target(s)...`);
+    const screenshots = await captureScreenshots(targets);
 
     console.log("Building Excel report...");
     const xlsxBuffer = await buildExcelReport({ startUrl, clientName, crawledAt, pages, analysis, screenshots });

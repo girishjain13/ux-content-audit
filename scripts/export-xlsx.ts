@@ -81,7 +81,8 @@ export async function buildExcelReport(input: {
   for (const t of templateAnalysis.templates) {
     const row = templatesSheet.addRow({ name: t.name, layout: t.layoutGrid, confidence: t.avgConfidence, count: t.pageCount, url: t.exampleUrl });
     row.height = 120;
-    const shot = screenshots.get(t.exampleUrl);
+    // Keyed per template so rows don't share one homepage screenshot
+    const shot = screenshots.get(`template:${t.name}::${t.layoutGrid}`);
     if (shot) {
       // exceljs's type declarations predate newer @types/node making Buffer
       // generic (Buffer<ArrayBufferLike>) — this is a type-declaration
@@ -116,7 +117,8 @@ export async function buildExcelReport(input: {
       reusability: c.reusabilityScore, count: c.pageCount, coverage: c.pageCoveragePct, url: c.exampleUrl,
     });
     row.height = 120;
-    const shot = screenshots.get(c.exampleUrl);
+    // Keyed per component; capture may be an element crop via domSelector
+    const shot = screenshots.get(`component:${c.standardName}`);
     if (shot) {
       // exceljs's type declarations predate newer @types/node making Buffer
       // generic (Buffer<ArrayBufferLike>) — this is a type-declaration

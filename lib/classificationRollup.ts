@@ -1,5 +1,28 @@
 import type { PageClassification } from "./pageClassifier.js";
 
+/**
+ * Prefer deeper, more specific URLs as screenshot examples so many
+ * templates/components don't all resolve to the homepage (which made
+ * every Excel row show the same full-page shot).
+ */
+function pickDistinctiveUrls(urls: Iterable<string>): string[] {
+  const list = [...urls];
+  list.sort((a, b) => {
+    const depth = (u: string) => {
+      try {
+        return new URL(u).pathname.split("/").filter(Boolean).length;
+      } catch {
+        return 0;
+      }
+    };
+    const da = depth(a);
+    const db = depth(b);
+    if (db !== da) return db - da; // deeper first
+    return a.localeCompare(b);
+  });
+  return list;
+}
+
 export type TemplateGroup = {
   name: string;
   layoutGrid: string;
@@ -57,7 +80,8 @@ export function rollUpTemplates(classifications: PageClassification[]): Template
 
   const templates: TemplateGroup[] = [...groups.values()]
     .map((g) => {
-      const sorted = [...g.urls].sort();
+      // Prefer a non-homepage example so screenshots are distinctive per template
+      const sorted = pickDistinctiveUrls(g.urls);
       return {
         name: g.name,
         layoutGrid: g.layoutGrid,
@@ -107,7 +131,7 @@ export function rollUpComponents(classifications: PageClassification[]): Compone
   const totalPages = classifications.length || 1;
   const components: ComponentGroup[] = [...groups.entries()]
     .map(([standardName, g]) => {
-      const sorted = [...g.urls].sort();
+      const sorted = pickDistinctiveUrls(g.urls);
       const pageCount = g.urls.size;
       const reusabilityScore: ComponentGroup["reusabilityScore"] = pageCount >= 5 ? "High" : pageCount >= 2 ? "Medium" : "Low";
       return {

@@ -501,10 +501,22 @@ export function renderReportHtml(input: {
 
     <section id="sec-feature-matrix">
       <h2 class="section-title">Feature Matrix</h2>
-      <div class="section-desc">Whether common website capabilities appear to be present — a discovery-phase signal, not a definitive functional inventory.</div>
+      <div class="section-desc">Capabilities discovered on <em>this</em> crawl only — built from URLs, forms, widgets, and path structure. Not a fixed checklist; every row is unique to the site audited.</div>
       <div class="card table-scroll">
-        <table><thead><tr><th>Feature</th><th>Detected?</th><th>Pages</th></tr></thead>
-        <tbody>${featureMatrix.map((f) => `<tr><td>${esc(f.feature)}</td><td>${f.detected ? "Yes" : "No"}</td><td>${f.detected ? f.pagesFoundOn : "—"}</td></tr>`).join("")}</tbody></table>
+        ${
+          featureMatrix.length === 0
+            ? "<p class='muted'>No capabilities were inferred from this crawl.</p>"
+            : `<table><thead><tr><th>Capability</th><th>Pages</th><th>Evidence</th><th>Sample URLs</th></tr></thead>
+        <tbody>${featureMatrix
+          .map((f) => {
+            const samples = (f.sampleUrls ?? [])
+              .slice(0, 2)
+              .map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\//, "").slice(0, 48))}</a>`)
+              .join("<br>");
+            return `<tr><td>${esc(f.feature)}</td><td>${f.pagesFoundOn}</td><td class="muted small">${esc(f.evidence ?? "")}</td><td class="small mono">${samples || "—"}</td></tr>`;
+          })
+          .join("")}</tbody></table>`
+        }
       </div>
     </section>
 

@@ -693,11 +693,14 @@ export async function analyzeSite(
     pages.map((p, i) => ({
       url: p.url,
       renderedDomHtml: p.renderedDomHtml || null,
-      hasMultipleLocales: localePerPage[i].hreflang.length > 0,
+      hasMultipleLocales: localePerPage[i].hreflang.length > 0 || Boolean(p.htmlLang),
       internalLinks: p.internalLinks,
       externalLinks: p.externalLinks,
       detectedGlobals: p.detectedGlobals,
       externalScriptDomains: p.renderedDomHtml ? extractScripts(p.renderedDomHtml, rootHost).externalDomains : [],
+      hasBookingIframe: p.hasBookingIframe,
+      hasChatWidget: p.hasChatWidget,
+      cookieWallPresent: p.cookieWallPresent,
     })),
   );
 
