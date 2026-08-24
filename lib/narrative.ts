@@ -23,6 +23,14 @@ export type NarrativeInputs = {
   duplicateContentCount: number;
   thinContentCount: number;
   maxClickDepth: number;
+  /** Consent banner still visible after dismissal attempts. */
+  stickyCookieWallCount: number;
+  /** Any cookie/consent banner detected (dismissed or not). */
+  cookieWallPageCount: number;
+  /** Pages where booking/appointment lives inside an iframe. */
+  bookingIframePageCount: number;
+  /** Pages with a live chat / messaging widget. */
+  chatWidgetPageCount: number;
 };
 
 const PILLAR_LABELS: Record<string, string> = {
@@ -55,6 +63,17 @@ export function generateInPlainTerms(input: NarrativeInputs): string[] {
   bullets.push(
     `Overall UX maturity scores ${input.scorecard.uxMaturityScore}/100 (${input.scorecard.uxMaturityBand}), based on ${input.totalPages} crawled pages.`,
   );
+  // Conversion / JS gates first — highest leverage for real users
+  if (input.stickyCookieWallCount > 0) {
+    bullets.push(
+      `${input.stickyCookieWallCount} page(s) still showed a cookie/consent wall after dismissal attempts — this can hide primary CTAs and distort content metrics.`,
+    );
+  }
+  if (input.bookingIframePageCount > 0) {
+    bullets.push(
+      `Appointment booking appears inside an iframe on ${input.bookingIframePageCount} page(s) — a common healthcare pattern that limits accessibility scanning and analytics fidelity.`,
+    );
+  }
   if (input.orphanPageCount > 0) {
     bullets.push(`${input.orphanPageCount} page(s) have no internal links pointing to them — effectively invisible to normal site navigation.`);
   }
@@ -86,6 +105,29 @@ export function generateUxLeadAssessment(input: NarrativeInputs): string[] {
       `overall. ${strongest} is the strongest of the four pillars measured here; ${weakest} is the one that would benefit most from ` +
       `attention next. That gap is usually the fastest place to look for quick, high-leverage wins.`,
   );
+
+  // Conversion / JS gates — surface before structural notes
+  const conversionSentences: string[] = [];
+  if (input.stickyCookieWallCount > 0) {
+    conversionSentences.push(
+      `A consent banner remained after automated dismissal on ${input.stickyCookieWallCount} page(s). ` +
+        `For real visitors that often means an extra interaction before they can see “Book appointment” or “Find a doctor” — treat it as a conversion friction item, not only a crawl artifact.`,
+    );
+  } else if (input.cookieWallPageCount > 0) {
+    conversionSentences.push(
+      `A consent banner was detected on ${input.cookieWallPageCount} page(s) and successfully cleared during the crawl. ` +
+        `Confirm it does not delay or cover primary CTAs on first paint.`,
+    );
+  }
+  if (input.bookingIframePageCount > 0) {
+    conversionSentences.push(
+      `Booking is iframe-hosted on ${input.bookingIframePageCount} page(s). That is normal for many hospital groups, ` +
+        `but it means axe-core cannot fully audit the flow and attribution can break when third-party cookies are restricted.`,
+    );
+  }
+  if (conversionSentences.length) {
+    paragraphs.push(`On conversion paths: ${conversionSentences.join(" ")}`);
+  }
 
   const iaSentences: string[] = [];
   if (input.orphanPageCount > 0) {
@@ -139,19 +181,19 @@ export function generateUxLeadAssessment(input: NarrativeInputs): string[] {
     paragraphs.push(`On findability: ${seoSentences.join(" ")}`);
   }
 
-  // Orphan pages deliberately ranked below accessibility and
-  // thin-content issues here — confirmed feedback from a real manual
-  // review: for most sites, an orphan page is a content-ops cleanup
-  // ticket, not the single highest-leverage UX item, and leading with
-  // it understated genuinely higher-priority accessibility problems.
+  // Priority: sticky cookie wall > booking iframe > a11y > thin content > orphans
   const nextStep =
-    input.accessibilityIssuePages > 0
-      ? "working through the automated accessibility findings"
-      : input.thinContentCount > 0
-        ? "addressing the thin-content pages"
-        : input.orphanPageCount > 0
-          ? `resolving the ${input.orphanPageCount} orphan page(s)`
-          : "reviewing the full findings list for the next round of polish";
+    input.stickyCookieWallCount > 0
+      ? "clearing the sticky cookie/consent wall so primary CTAs are immediately usable"
+      : input.bookingIframePageCount > 0
+        ? "validating the iframe booking flow for load reliability, keyboard access, and analytics"
+        : input.accessibilityIssuePages > 0
+          ? "working through the automated accessibility findings"
+          : input.thinContentCount > 0
+            ? "addressing the thin-content pages"
+            : input.orphanPageCount > 0
+              ? `resolving the ${input.orphanPageCount} orphan page(s)`
+              : "reviewing the full findings list for the next round of polish";
   paragraphs.push(`Where to start next sprint: ${nextStep} — the highest-leverage, most concretely actionable item in this audit.`);
 
   return paragraphs;

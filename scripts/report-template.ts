@@ -135,6 +135,42 @@ export function renderReportHtml(input: {
   const contentFindingTypes = ["missing_title", "missing_meta_description", "duplicate_title", "near_duplicate_content", "low_readability", "missing_canonical", "missing_og_tags", "thin_content", "case_inconsistent_urls", "non_functional_href"];
   const contentFindings = findings.filter((f) => contentFindingTypes.includes(f.findingType));
 
+  // Conversion / JS-gate blockers shown at the top of the UX tab
+  const priorityFindings = findings
+    .filter(
+      (f) =>
+        f.severity === "critical" ||
+        f.findingType === "booking_iframe_gate" ||
+        f.findingType === "cookie_wall_blocking" ||
+        f.findingType === "cookie_wall_present",
+    )
+    .sort((a, b) => {
+      const rank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (rank[a.severity] ?? 4) - (rank[b.severity] ?? 4);
+    });
+
+  const priorityBlock =
+    priorityFindings.length === 0
+      ? ""
+      : `<section id="sec-priority">
+      <h2 class="section-title">Priority conversion &amp; JS gates</h2>
+      <div class="section-desc">Issues that can hide or distort primary user tasks (book, find a doctor, contact). Reviewed before the rest of the scorecard.</div>
+      <div class="card">
+        ${priorityFindings
+          .map(
+            (f) => `<div style="display:flex; gap:10px; padding:12px 0; border-bottom:1px solid var(--line);">
+            <span class="pill status-issue">${esc(f.severity)}</span>
+            <div style="flex:1">
+              <strong>${esc(f.title)}</strong>
+              <div class="muted small" style="margin-top:4px">${esc(f.description)}</div>
+              <div class="muted small" style="margin-top:4px">${f.affectedPageCount} page(s) · ${esc(f.detectionMethod)}</div>
+            </div>
+          </div>`,
+          )
+          .join("")}
+      </div>
+    </section>`;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -293,6 +329,7 @@ export function renderReportHtml(input: {
     <button class="tab-btn" onclick="showTab('content', this)">Content Strategist</button>
   </div>
   <div class="quicknav">
+    <a href="#sec-priority" onclick="jumpTo(event,'sec-priority','ux')">Priority gates</a>
     <a href="#sec-plain-terms" onclick="jumpTo(event,'sec-plain-terms','ux')">In Plain Terms</a>
     <a href="#sec-assessment" onclick="jumpTo(event,'sec-assessment','ux')">Assessment</a>
     <a href="#sec-scorecard" onclick="jumpTo(event,'sec-scorecard','ux')">Scorecard</a>
@@ -311,6 +348,8 @@ export function renderReportHtml(input: {
   </div>
 
   <div id="tab-ux" class="tab-panel active">
+
+    ${priorityBlock}
 
     <section id="sec-plain-terms">
       <h2 class="section-title">In Plain Terms</h2>

@@ -45,6 +45,14 @@ export type CrawledPage = {
   nonFunctionalHrefs: string[];
   lastModified: string | null;
   error: string | null;
+  /** Consent banner was still visible after dismissal attempts (blocks CTAs / distorts metrics). */
+  cookieWallPresent: boolean;
+  /** True if a known Accept/Reject control was successfully clicked. */
+  cookieDismissed: boolean;
+  /** Appointment/booking UI appears inside an iframe (common healthcare pattern). */
+  hasBookingIframe: boolean;
+  /** Live chat / messaging widget detected in the rendered page. */
+  hasChatWidget: boolean;
 };
 
 export type CrawlOptions = {
@@ -242,50 +250,150 @@ export function isPageError(p: { error: string | null; statusCode: number | null
   return Boolean(p.error) || (p.statusCode !== null && p.statusCode >= 400);
 }
 
+/** Known consent / cookie-banner accept controls (OneTrust, Cookiebot, generic). */
+const COOKIE_SELECTORS = [
+  "#onetrust-accept-btn-handler",
+  "#onetrust-reject-all-handler",
+  "button#accept-recommended-btn-handler",
+  'button[aria-label*="Accept" i]',
+  'button[aria-label*="Agree" i]',
+  'button:has-text("Accept all")',
+  'button:has-text("Accept All")',
+  'button:has-text("Allow all")',
+  'button:has-text("I agree")',
+  'button:has-text("Got it")',
+  'button:has-text("Accept cookies")',
+  '[data-testid="cookie-accept"]',
+  ".cc-btn.cc-dismiss",
+  "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+  "button.cookie-accept",
+  '[id*="cookie"] button[class*="accept" i]',
+];
+
+async function dismissCookies(page: PlaywrightPage): Promise<boolean> {
+  for (const selector of COOKIE_SELECTORS) {
+    try {
+      const btn = page.locator(selector).first();
+      if (await btn.isVisible({ timeout: 800 })) {
+        await btn.click({ timeout: 1500 });
+        await page.waitForTimeout(600);
+        return true;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  try {
+    const textBtn = page.getByRole("button", { name: /accept all|allow all|agree|got it/i }).first();
+    if (await textBtn.isVisible({ timeout: 500 })) {
+      await textBtn.click({ timeout: 1500 });
+      await page.waitForTimeout(600);
+      return true;
+    }
+  } catch {
+    /* no text match */
+  }
+  return false;
+}
+
+/** Wait until body word-count plateaus — proxy for SPA / AEM hydration finished. */
+async function waitForContentStable(page: PlaywrightPage, maxMs = 4000): Promise<void> {
+  const start = Date.now();
+  let lastCount = -1;
+  let stableRounds = 0;
+  while (Date.now() - start < maxMs) {
+    const count = await page.evaluate(() =>
+      (document.body?.innerText || "").trim().split(/\s+/).filter(Boolean).length,
+    );
+    if (count === lastCount && count > 30) {
+      stableRounds++;
+      if (stableRounds >= 2) return;
+    } else {
+      stableRounds = 0;
+      lastCount = count;
+    }
+    await page.waitForTimeout(350);
+  }
+}
+
+async function scrollAndSettle(page: PlaywrightPage): Promise<void> {
+  try {
+    await page.evaluate(async () => {
+      const step = 700;
+      const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+      for (let y = 0; y < height; y += step) {
+        window.scrollTo(0, y);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      window.scrollTo(0, 0);
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    });
+  } catch {
+    /* non-critical */
+  }
+}
+
+async function detectConversionGates(page: PlaywrightPage): Promise<{
+  hasBookingIframe: boolean;
+  hasChatWidget: boolean;
+  cookieWallPresent: boolean;
+}> {
+  return page.evaluate(() => {
+    const iframes = Array.from(document.querySelectorAll("iframe"));
+    const hasBookingIframe = iframes.some((f) => {
+      const src = (f.src || "").toLowerCase();
+      const title = (f.title || "").toLowerCase();
+      return (
+        /book|appointment|schedule|calendar|doctify|zocdoc|health|patient/.test(src) ||
+        /book|appointment/.test(title)
+      );
+    });
+    const hasChatWidget = !!(
+      document.querySelector(
+        '[class*="chat" i], [id*="chat" i], [class*="intercom" i], [id*="intercom" i]',
+      ) ||
+      (window as unknown as { Intercom?: unknown }).Intercom ||
+      (window as unknown as { HubSpotConversations?: unknown }).HubSpotConversations
+    );
+    const cookieWallPresent = !!(
+      document.querySelector(
+        "#onetrust-banner-sdk, #CybotCookiebotDialog, [id*='cookie-banner' i], .cookie-consent, #onetrust-consent-sdk",
+      )
+    );
+    return { hasBookingIframe, hasChatWidget, cookieWallPresent };
+  });
+}
+
 async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string): Promise<CrawledPage> {
   const started = Date.now();
   try {
-    // Hybrid wait strategy: get networkidle's real benefit (it genuinely
-    // does catch real hydration completion better than a fixed delay)
-    // when a page cooperates, but never let it hang indefinitely the
-    // way the original flat "networkidle" wait did — confirmed root
-    // cause of real production timeouts was persistent telemetry
-    // connections (Clarity, heatmap tools, social-SDK beacons) that
-    // keep a socket open more or less permanently, so a page could
-    // never reach true "idle". Racing it against a hard cap gets both
-    // properties at once.
+    // Hybrid wait: networkidle when the page cooperates, hard cap so
+    // persistent telemetry (Clarity, heatmaps, social SDKs) cannot hang
+    // the crawl forever.
     let response;
     try {
       response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
       await Promise.race([page.waitForLoadState("networkidle"), page.waitForTimeout(5000)]);
-    } catch (navErr) {
-      // One retry with an even lighter wait condition before giving up
-      // entirely — a page that's slow once isn't necessarily broken.
+    } catch {
       response = await page.goto(url, { waitUntil: "commit", timeout: 20000 });
       await page.waitForTimeout(2000);
     }
 
-    // Progressive scroll to trigger IntersectionObserver-gated content
-    // (lazy-loaded images, infinite-scroll cards, video containers)
-    // before extraction — without this, anything gated behind scroll
-    // position looks identical to genuinely missing content (e.g.
-    // undercounting real image-alt violations on image-heavy pages).
-    // Returns to the top afterward so sticky nav/landmark positioning
-    // isn't disturbed for the actual extraction pass.
-    try {
-      await page.evaluate(async () => {
-        const step = 800;
-        const height = document.body.scrollHeight;
-        for (let y = 0; y < height; y += step) {
-          window.scrollTo(0, y);
-          await new Promise((resolve) => setTimeout(resolve, 120));
-        }
-        window.scrollTo(0, 0);
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      });
-    } catch {
-      /* non-critical — extraction still proceeds on whatever rendered without it */
-    }
+    // 1. Dismiss cookie / consent walls before extraction (OneTrust etc.)
+    const cookieDismissed = await dismissCookies(page);
+
+    // 2. Wait for SPA / AEM hydration (word-count plateau)
+    await waitForContentStable(page, 3500);
+
+    // 3. Progressive scroll to trigger IntersectionObserver / lazy content
+    await scrollAndSettle(page);
+
+    // 4. Some sites re-show the banner after scroll — try once more
+    const cookieDismissedAgain = await dismissCookies(page);
+    const anyCookieDismissed = cookieDismissed || cookieDismissedAgain;
+
+    // 5. Short final quiet period
+    await page.waitForLoadState("networkidle", { timeout: 2500 }).catch(() => {});
 
     const statusCode = response ? response.status() : null;
     const lastModified = response?.headers()["last-modified"] ?? null;
@@ -298,7 +406,7 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       canonical: string | null;
       wordCount: number;
       htmlLang: string | null;
-  htmlDir: string | null;
+      htmlDir: string | null;
       hreflangLinks: { locale: string; url: string }[];
       internalLinks: string[];
       externalLinks: string[];
@@ -309,6 +417,12 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       detectedGlobals: string[];
       nonFunctionalHrefs: string[];
     };
+
+    const gates = await detectConversionGates(page).catch(() => ({
+      hasBookingIframe: false,
+      hasChatWidget: false,
+      cookieWallPresent: false,
+    }));
 
     let accessibilityViolations: CrawledPage["accessibilityViolations"] = [];
     try {
@@ -329,6 +443,10 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       accessibilityViolations,
       lastModified,
       error: null,
+      cookieWallPresent: gates.cookieWallPresent,
+      cookieDismissed: anyCookieDismissed,
+      hasBookingIframe: gates.hasBookingIframe,
+      hasChatWidget: gates.hasChatWidget,
       ...extracted,
     };
   } catch (err) {
@@ -359,6 +477,10 @@ async function renderOnePage(page: PlaywrightPage, url: string, rootHost: string
       accessibilityViolations: [],
       lastModified: null,
       error: err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500),
+      cookieWallPresent: false,
+      cookieDismissed: false,
+      hasBookingIframe: false,
+      hasChatWidget: false,
     };
   }
 }
@@ -397,8 +519,38 @@ export async function crawlSite(options: CrawlOptions): Promise<CrawledPage[]> {
       const batchResults = await Promise.all(
         batch.map(async ({ url, depth }) => {
           if (respectRobots && !canFetch(robotsTxt, url)) {
-            return { url, finalUrl: url, statusCode: null, responseTimeMs: 0, depth, title: null, metaDescription: null, h1Text: null, canonical: null, wordCount: 0, htmlLang: null,
-      htmlDir: null, hreflangLinks: [], renderedDomHtml: "", isClientRendered: false, internalLinks: [], externalLinks: [], images: [], documents: [], videos: [], interactions: [], accessibilityViolations: [], detectedGlobals: [], nonFunctionalHrefs: [], lastModified: null, error: "blocked_by_robots_txt" } as CrawledPage;
+            return {
+              url,
+              finalUrl: url,
+              statusCode: null,
+              responseTimeMs: 0,
+              depth,
+              title: null,
+              metaDescription: null,
+              h1Text: null,
+              canonical: null,
+              wordCount: 0,
+              htmlLang: null,
+              htmlDir: null,
+              hreflangLinks: [],
+              renderedDomHtml: "",
+              isClientRendered: false,
+              internalLinks: [],
+              externalLinks: [],
+              images: [],
+              documents: [],
+              videos: [],
+              interactions: [],
+              accessibilityViolations: [],
+              detectedGlobals: [],
+              nonFunctionalHrefs: [],
+              lastModified: null,
+              error: "blocked_by_robots_txt",
+              cookieWallPresent: false,
+              cookieDismissed: false,
+              hasBookingIframe: false,
+              hasChatWidget: false,
+            } as CrawledPage;
           }
           const page = await context.newPage();
           try {

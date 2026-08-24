@@ -485,6 +485,66 @@ export async function analyzeSite(
     );
   }
 
+  // --- Conversion & JS gates (cookie walls, booking iframes) ---
+  const cookieWallPages = pages.filter((p) => !p.error && p.cookieWallPresent);
+  const stickyCookieWall = pages.filter((p) => !p.error && p.cookieWallPresent && !p.cookieDismissed);
+  const bookingIframePages = pages.filter((p) => !p.error && p.hasBookingIframe);
+  const chatWidgetPages = pages.filter((p) => !p.error && p.hasChatWidget);
+
+  if (stickyCookieWall.length) {
+    findings.push(
+      makeFinding({
+        findingType: "cookie_wall_blocking",
+        title: `Cookie / consent wall still present on ${stickyCookieWall.length} page(s) after dismissal attempts`,
+        description:
+          "A consent banner remained visible after standard Accept/Reject clicks. On many sites this gates the real DOM, " +
+          "hides primary CTAs, and causes false thin-content / missing-feature readings. Treat as a crawl reliability issue " +
+          "and a conversion friction signal for real users.",
+        severity: "critical",
+        effortBucket: "config",
+        personas: ["ux", "business"],
+        affectedPageCount: stickyCookieWall.length,
+        affectedUrlsSample: stickyCookieWall.slice(0, 10).map((p) => p.url),
+        detectionMethod: "Cookie banner selectors still matched after dismissCookies()",
+      }),
+    );
+  } else if (cookieWallPages.length) {
+    findings.push(
+      makeFinding({
+        findingType: "cookie_wall_present",
+        title: `Cookie / consent banner detected on ${cookieWallPages.length} page(s)`,
+        description:
+          "A consent UI was present and successfully dismissed. Confirm the banner does not delay or obscure primary CTAs " +
+          "(Book Appointment, Find a Doctor) for first-time visitors.",
+        severity: "medium",
+        effortBucket: "config",
+        personas: ["ux", "business"],
+        affectedPageCount: cookieWallPages.length,
+        affectedUrlsSample: cookieWallPages.slice(0, 10).map((p) => p.url),
+        detectionMethod: "Matched known cookie-banner selectors (OneTrust, Cookiebot, generic)",
+      }),
+    );
+  }
+
+  if (bookingIframePages.length) {
+    findings.push(
+      makeFinding({
+        findingType: "booking_iframe_gate",
+        title: `Appointment / booking flow appears inside an iframe on ${bookingIframePages.length} page(s)`,
+        description:
+          "Primary conversion (book appointment) is delegated to a third-party or cross-origin iframe. " +
+          "This is common in healthcare, but it blocks full accessibility scanning, complicates analytics attribution, " +
+          "and can fail on strict CSP / cookie policies. Validate the iframe loads reliably and is keyboard-accessible.",
+        severity: "high",
+        effortBucket: "custom_dev",
+        personas: ["ux", "business"],
+        affectedPageCount: bookingIframePages.length,
+        affectedUrlsSample: bookingIframePages.slice(0, 10).map((p) => p.url),
+        detectionMethod: "iframe[src|title] matched booking/appointment patterns",
+      }),
+    );
+  }
+
   // --- Business Analyst: tech stack, risk flags, variance ---
   const cmsPages = new Map<string, Set<string>>();
   const frameworkPages = new Map<string, Set<string>>();
@@ -667,6 +727,10 @@ export async function analyzeSite(
     duplicateContentCount: duplicateTitleGroups.flat().length,
     thinContentCount: pages.filter((p) => p.wordCount > 0 && p.wordCount < 150).length,
     maxClickDepth: pages.length ? Math.max(...pages.map((p) => p.depth)) : 0,
+    stickyCookieWallCount: stickyCookieWall.length,
+    cookieWallPageCount: cookieWallPages.length,
+    bookingIframePageCount: bookingIframePages.length,
+    chatWidgetPageCount: chatWidgetPages.length,
   };
   const plainTerms = generateInPlainTerms(narrativeInputs);
   const uxLeadAssessment = generateUxLeadAssessment(narrativeInputs);
@@ -730,7 +794,7 @@ export async function analyzeSite(
     buildHeuristicCard(
       "h3", "H3 · User control and freedom",
       "Can people easily undo actions, back out of a flow, or escape somewhere they didn't mean to go?",
-      null, "Needs testing actual flows (forms, checkout, wizards) — outside what a link crawl can observe.",
+      ["cookie_wall_blocking", "cookie_wall_present"],
     ),
     buildHeuristicCard(
       "h4", "H4 · Consistency and standards",
